@@ -3,7 +3,6 @@ sys.path.insert(0, '../utils')
 
 import pybullet_data
 import pybullet as p
-import time
 import numpy as np
 from numpy import array
 
