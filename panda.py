@@ -1,13 +1,17 @@
-import sys
-
+import os
 import pybullet as p
 import numpy as np
 from numpy import array
 
 
 class Panda:
-	def __init__(self):
-		self.urdfRootPath = "geometry/franka/panda_arm_finger.urdf"
+	def __init__(self, long_finger=False, wide_finger=False):
+		if wide_finger:
+			self.urdfRootPath = os.path.join(os.path.dirname(__file__), 'geometry/franka/panda_arm_finger_wide.urdf')	# Wide finger specifically for grasping cups for pouring task
+		elif long_finger:
+			self.urdfRootPath = os.path.join(os.path.dirname(__file__), 'geometry/franka/panda_arm_finger_long.urdf')	# longer finger from Doug's design		
+		else:
+			self.urdfRootPath = os.path.join(os.path.dirname(__file__), 'geometry/franka/panda_arm_finger_orig.urdf')	# original finger from Franka
 		self.pandaId = None
 		
 		self.numJoints = 13

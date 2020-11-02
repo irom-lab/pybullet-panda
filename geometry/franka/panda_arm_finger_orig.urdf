@@ -293,14 +293,14 @@
       <origin rpy="0 0 0" xyz="0 0 0.029"/>
       <geometry>
         <!-- <box size="0.018 0.015 0.108"/> -->
-        <mesh filename="meshes/collision/franka_finger_lower_v4.stl"/>
+        <mesh filename="meshes/collision/franka_finger_lower_orig.stl"/>
       </geometry>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0.029"/>
       <geometry>
         <!-- <box size="0.018 0.015 0.108"/> -->
-        <mesh filename="meshes/collision/franka_finger_lower_v4.stl"/>
+        <mesh filename="meshes/collision/franka_finger_lower_orig.stl"/>
       </geometry>
     </collision>
     <inertial>
@@ -317,13 +317,13 @@
       <origin rpy="0 0 3.14" xyz="0 0 0.029"/>
       <geometry>
         <!-- <box size="0.018 0.015 0.108"/> -->
-        <mesh filename="meshes/collision/franka_finger_lower_v4.stl"/>
+        <mesh filename="meshes/collision/franka_finger_lower_orig.stl"/>
       </geometry>
     </visual>
     <collision>
       <origin rpy="0 0 3.14" xyz="0 0 0.029"/>
       <geometry>
-        <mesh filename="meshes/collision/franka_finger_lower_v4.stl"/>
+        <mesh filename="meshes/collision/franka_finger_lower_orig.stl"/>
         <!-- <box size="0.018 0.015 0.108"/> -->
       </geometry>
     </collision>
