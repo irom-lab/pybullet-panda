@@ -19,7 +19,7 @@ class PandaEnv():
 	def __init__(self,
 				 urdfRoot=pybullet_data.getDataPath(),
 				 mu=0.4,
-				 sigma=0.05,
+				 sigma=0.03,
 				 timestep=1./240.,
 				 long_finger=False,
 				 wide_finger=False
