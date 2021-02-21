@@ -1,5 +1,4 @@
-# panda-env-pybullet
-Custom Franka Panda environment in PyBullet 
+# Custom Franka Panda environment in PyBullet
 
 ```move_pos``` in panda_env.py implements a resolved-rate velocity controller of the arm. A wide variety of orientation input (Euler/Quaternion/Azimuthal) is supported. utils_geom.py specifies the Euler angle convention used.
 
