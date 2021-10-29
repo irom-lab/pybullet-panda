@@ -7,13 +7,23 @@ import pybullet_data
 import numpy as np
 from numpy import array
 
-from utils_geom import *
+from utils_geom import euler2quat, quat2rot, quatMult, log_rot
 from panda import Panda
 
 
 def full_jacob_pb(jac_t, jac_r):
     return np.vstack(
         (jac_t[0], jac_t[1], jac_t[2], jac_r[0], jac_r[1], jac_r[2]))
+
+
+def plot_frame_pb(pos, orn=np.array([0., 0., 0., 1.]), w_first=False):
+    rot = quat2rot(orn, w_first)
+    endPos = pos + 0.1 * rot[:, 0]
+    p.addUserDebugLine(pos, endPos, lineColorRGB=[1, 0, 0], lineWidth=5)
+    endPos = pos + 0.1 * rot[:, 1]
+    p.addUserDebugLine(pos, endPos, lineColorRGB=[0, 1, 0], lineWidth=5)
+    endPos = pos + 0.1 * rot[:, 2]
+    p.addUserDebugLine(pos, endPos, lineColorRGB=[0, 0, 1], lineWidth=5)
 
 
 class PandaEnv():
@@ -131,7 +141,53 @@ class PandaEnv():
         ]
         self._panda.reset(jointPoses)
 
-    ########################* Arm control *#######################
+    ########################* Wrist camera *#######################
+    def get_wrist_camera_image(self,
+                               offset=[0.04, 0, 0.04],
+                               img_H=320,
+                               img_W=320,
+                               camera_fov=90,
+                               camera_aspect=1):
+        """
+        Assume camera has same orientation as gripper
+        """
+        ee_pos, ee_orn = self.get_ee()
+        rot_matrix = quat2rot(ee_orn)
+        camera_pos = ee_pos + rot_matrix.dot(offset)
+        plot_frame_pb(camera_pos, ee_orn)
+
+        # rot_matrix = [0, self.camera_tilt / 180 * np.pi, yaw]
+        # rot_matrix = self._p.getMatrixFromQuaternion(
+        #     self._p.getQuaternionFromEuler(rot_matrix))
+        # rot_matrix = np.array(rot_matrix).reshape(3, 3)
+
+        # Initial vectors
+        init_camera_vector = (0, 0, 1)  # z-axis
+        init_up_vector = (1, 0, 0)  # x-axis
+
+        # Rotated vectors
+        camera_vector = rot_matrix.dot(init_camera_vector)
+        up_vector = rot_matrix.dot(init_up_vector)
+        view_matrix = p.computeViewMatrix(camera_pos,
+                                          camera_pos + 0.1 * camera_vector,
+                                          up_vector)
+
+        # Get Image
+        far = 1000.0
+        near = 0.01
+        projection_matrix = p.computeProjectionMatrixFOV(fov=camera_fov,
+                                                         aspect=camera_aspect,
+                                                         nearVal=near,
+                                                         farVal=far)
+        _, _, rgb, depth, _ = p.getCameraImage(img_W,
+                                               img_H,
+                                               view_matrix,
+                                               projection_matrix,
+                                               flags=p.ER_NO_SEGMENTATION_MASK)
+        depth = far * near / (far - (far - near) * depth)
+        return rgb, depth
+
+    ########################* Arm control ########################
 
     def move_pos(
             self,
@@ -236,8 +292,8 @@ class PandaEnv():
 
     def grasp(self, targetVel=0):
         """
-		#* Change gripper velocity direction
-		"""
+        #* Change gripper velocity direction
+        """
 
         # Use specified velocity if available
         if targetVel > 1e-2 or targetVel < -1e-2:
@@ -340,8 +396,8 @@ class PandaEnv():
 
     def check_hold_object(self, objId, minForceThres=10.0):
         """
-		#* Check if grasp was successful
-		"""
+        #* Check if grasp was successful
+        """
         left_contacts, right_contacts = self.get_contact(objId)
 
         leftNormalMag = sum([i[9] for i in left_contacts])
