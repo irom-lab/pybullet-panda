@@ -1,12 +1,13 @@
 # Minimal working example of grasping a box
-
+import os
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-
-from panda_env import PandaEnv, plot_frame_pb
+import panda
+from panda.panda_env import PandaEnv, plot_frame_pb
 import pybullet as p
 
+print()
 # Connect to PyBullet in GUI
 p.connect(p.GUI, options="--width=2600 --height=1800")
 p.resetDebugVisualizerCamera(0.8, 135, -30, [0.5, 0, 0])
@@ -20,7 +21,10 @@ env = PandaEnv(
 env.reset_env()
 
 # Load an object - assume [x=0.5, y=0] is the center of workspace
-obj_id = p.loadURDF('geometry/cracker_box.urdf',
+obj_id = p.loadURDF(os.path.join(
+    os.path.dirname(panda.__file__),
+    'geometry/cracker_box.urdf',
+),
                     basePosition=[0.5, 0, 0.07],
                     baseOrientation=[0, 0, 0, 1])
 

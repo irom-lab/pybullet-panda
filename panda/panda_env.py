@@ -8,7 +8,7 @@ import numpy as np
 from numpy import array
 
 from utils_geom import euler2quat, quat2rot, quatMult, log_rot
-from panda import Panda
+from .panda import Panda
 
 
 def full_jacob_pb(jac_t, jac_r):
