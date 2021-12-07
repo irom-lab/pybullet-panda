@@ -6,3 +6,5 @@ There are three different fingers available:
 1. the original one from Franka
 2. a longer one (preferred for grasping, design from [Doug Morrison](https://dougsm.com/))
 3. a wider one (for grasping cups and pouring liquid)
+
+train_grasp.py implements simple 2D grasp training using affordance map.
