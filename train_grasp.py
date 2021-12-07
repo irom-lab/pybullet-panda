@@ -13,8 +13,25 @@ import psutil
 from src.fcn import FCN
 from src.util_depth import getParameters
 from src.util_misc import save__init__args, ensure_directory
-from src.util_geom import quatMult, euler2quat, rotate_tensor
+from panda.util_geom import quatMult, euler2quat
 from panda.panda_env import PandaEnv
+
+
+def rotate_tensor(orig_tensor, theta):
+    """
+	Rotate images clockwise
+	"""
+    affine_mat = np.array([[np.cos(theta), np.sin(theta), 0],
+                           [-np.sin(theta), np.cos(theta), 0]])
+    affine_mat.shape = (2, 3, 1)
+    affine_mat = torch.from_numpy(affine_mat).permute(2, 0, 1).float()
+    flow_grid = torch.nn.functional.affine_grid(affine_mat,
+                                                orig_tensor.size(),
+                                                align_corners=False)
+    return torch.nn.functional.grid_sample(orig_tensor,
+                                           flow_grid,
+                                           mode='nearest',
+                                           align_corners=False)
 
 
 class GraspSim:

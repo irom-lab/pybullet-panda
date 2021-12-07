@@ -1,13 +1,9 @@
-import sys
-
-sys.path.insert(0, '../utils')
-
 import pybullet as p
 import pybullet_data
 import numpy as np
 from numpy import array
 
-from utils_geom import euler2quat, quat2rot, quatMult, log_rot
+from .util_geom import euler2quat, quat2rot, quatMult, log_rot
 from .panda import Panda
 
 
