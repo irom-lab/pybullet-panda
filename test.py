@@ -16,8 +16,7 @@ p.resetDebugVisualizerCamera(0.8, 135, -30, [0.5, 0, 0])
 env = PandaEnv(
     mu=0.4,  # tangential friction coefficient
     sigma=0.03,  # torsional friction coefficient
-    long_finger=False,
-    wide_finger=False)
+    finger_type='wide_flat')
 env.reset_env()
 
 # Load an object - assume [x=0.5, y=0] is the center of workspace

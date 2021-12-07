@@ -5,23 +5,19 @@ from numpy import array
 
 
 class Panda:
-    def __init__(self, long_finger=False, wide_finger=False):
-        if wide_finger:
-            self.urdfRootPath = os.path.join(
-                os.path.dirname(__file__),
-                'geometry/franka/panda_arm_finger_wide.urdf'
-            )  # Wide finger specifically for grasping cups for pouring task
-        elif long_finger:
-            self.urdfRootPath = os.path.join(
-                os.path.dirname(__file__),
-                'geometry/franka/panda_arm_finger_long.urdf'
-            )  # longer finger from Doug's design
+    def __init__(self, finger_type=None):
+        if finger_type is None:
+            finger_name = 'panda_arm_finger_orig'
+        elif finger_type == 'long':
+            finger_name = 'panda_arm_finger_long'
+        elif finger_type == 'wide_curved':
+            finger_name = 'panda_arm_finger_wide_curved'
+        elif finger_type == 'wide_flat':
+            finger_name = 'panda_arm_finger_wide_flat'
         else:
-            self.urdfRootPath = os.path.join(
-                os.path.dirname(__file__),
-                'geometry/franka/panda_arm_finger_orig.urdf'
-            )  # original finger from Franka
-        self.pandaId = None
+            raise NotImplementedError
+        self.urdfRootPath = os.path.join(
+            os.path.dirname(__file__), f'geometry/franka/{finger_name}.urdf')
 
         self.numJoints = 13
         self.numJointsArm = 7  # Number of joints in arm (not counting hand)
@@ -47,6 +43,8 @@ class Panda:
         ]
         self.jointRange = [5.8, 3.5, 5.8, 3, 5.8, 3.8, 5.8]
         self.jointRestPose = [0, -1.4, 0, -1.4, 0, 1.2, 0]
+        self.jointMaxVel = np.array([2.0, 2.0, 2.0, 2.0, 2.5, 2.5,
+                                     2.5])  # actually 2.175 and 2.61
 
         self.fingerOpenPos = 0.04
         self.fingerClosedPos = 0.0

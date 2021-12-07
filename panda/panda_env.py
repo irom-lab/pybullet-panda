@@ -32,8 +32,7 @@ class PandaEnv():
                  mu=0.4,
                  sigma=0.03,
                  timestep=1. / 240.,
-                 long_finger=False,
-                 wide_finger=False):
+                 finger_type=None):
 
         self._urdfRoot = urdfRoot
         self._timeStep = timestep
@@ -45,8 +44,7 @@ class PandaEnv():
         self._mu = mu
         self._sigma = sigma
 
-        self.long_finger = long_finger
-        self.wide_finger = wide_finger
+        self.finger_type = finger_type
 
     def reset_env(self):
         p.resetSimulation()
@@ -64,7 +62,7 @@ class PandaEnv():
                                    useFixedBase=1)
 
         # Load arm, no need to settle (joint angle set instantly)
-        self._panda = Panda(self.long_finger, self.wide_finger)
+        self._panda = Panda(self.finger_type)
         self._pandaId = self._panda.load()
 
         p.changeDynamics(
@@ -270,13 +268,13 @@ class PandaEnv():
                                     p.VELOCITY_CONTROL,
                                     targetVelocity=self._panda.fingerCurVel,
                                     force=self._panda.maxFingerForce,
-                                    maxVelocity=0.05)
+                                    maxVelocity=0.10)
             p.setJointMotorControl2(self._pandaId,
                                     self._panda.pandaRightFingerJointIndex,
                                     p.VELOCITY_CONTROL,
                                     targetVelocity=self._panda.fingerCurVel,
                                     force=self._panda.maxFingerForce,
-                                    maxVelocity=0.05)
+                                    maxVelocity=0.10)
 
             # Quit if contact at either finger
             if checkContact:
@@ -340,7 +338,6 @@ class PandaEnv():
             jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three columns
 
         try:
-            # jointDot = np.linalg.pinv(jac_sp)@(np.hstack((posGain*eePosError, velGain*eeOrnError)).reshape(6,1))  # pseudo-inverse
             jointDot = np.linalg.pinv(jac_sp).dot((np.hstack(
                 (posGain * eePosError,
                  velGain * eeOrnError)).reshape(6, 1)))  # pseudo-inverse
