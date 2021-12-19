@@ -83,9 +83,10 @@ def getParameters():
 
 
 # Camera pixel location to 3D world location (point cloud)
-def pixelToWorld(depthBuffer, center, dim):
+def pixelToWorld(depthBuffer, center, dim, params=None):
     point_cloud = np.zeros((0, 3))
-    params = getParameters()
+    if params is None:
+        params = getParameters()
     far = params['far']  # 998.6
     near = params['near']  # 0.01
 
@@ -94,8 +95,6 @@ def pixelToWorld(depthBuffer, center, dim):
     stepY = 1
     for w in range(center - dim // 2, center + dim // 2, stepX):
         for h in range(center - dim // 2, center + dim // 2, stepY):
-            # for w in range(128, 128+256, stepX):
-            # for h in range(128, 128+256, stepY):
             rayFrom, rayTo, alpha = getRayFromTo(w, h, params)
             rf = np.array(rayFrom)
             rt = np.array(rayTo)
@@ -112,9 +111,9 @@ def pixelToWorld(depthBuffer, center, dim):
             if newTo[2] > 0.0:
                 point_cloud = np.concatenate(
                     (point_cloud, newTo.reshape(1, 3)), axis=0)
-    np.savez('pixel2xy128.npz', pixel2xy=pixel2xy)
-    print(pixel2xy)
-    return point_cloud
+    np.savez('pixel2xy20.npz', pixel2xy=pixel2xy)
+    # print(pixel2xy)
+    return pixel2xy
 
 
 def getRayFromTo(mouseX, mouseY, params):

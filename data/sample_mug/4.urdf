@@ -1,0 +1,25 @@
+<?xml version="1.0" ?>
+<robot name="4.urdf">
+	<link name="baseLink">
+		<inertial>
+			<origin rpy="0 0 0" xyz="0 0 0"/>
+				<mass value="0.1"/>
+				<inertia ixx="6e-5" ixy="0" ixz="0" iyy="6e-5" iyz="0" izz="6e-5"/>
+		</inertial>
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="4_decom_wt.obj" scale="0.8 0.8 0.5"/>
+			</geometry>
+			<material name="yellow">
+				<color rgba="0.98 0.84 0.35 1"/>
+			</material>
+		</visual>
+		<collision>
+			<origin rpy="0 0 0" xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="4_decom_wt.obj" scale="0.8 0.8 0.5"/>
+			</geometry>
+		</collision>
+	</link>
+</robot>
