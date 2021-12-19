@@ -200,6 +200,9 @@ class GraspSim:
             ps.cpu_affinity([cpu_id])
             torch.set_num_threads(1)
 
+        # Re-seed for sampling initial poses
+        np.random.seed()
+
         # Initialize PyBullet
         if gui:
             p.connect(p.GUI, options="--width=2600 --height=1800")
