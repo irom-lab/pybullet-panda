@@ -434,3 +434,16 @@ def LinearTimeScaling(Tf, t):
 	Computes s(t) for a quintic time scaling
 	"""
     return t / Tf
+
+
+def traj_time_scaling(self, startPos, endPos, numSteps):
+    trajPos = np.zeros((numSteps, 3))
+    for step in range(numSteps):
+        s = 3 * (1.0 * step / numSteps)**2 - 2 * (1.0 * step / numSteps)**3
+        trajPos[step] = (endPos - startPos) * s + startPos
+    return trajPos
+
+
+def full_jacob_pb(jac_t, jac_r):
+    return np.vstack(
+        (jac_t[0], jac_t[1], jac_t[2], jac_r[0], jac_r[1], jac_r[2]))

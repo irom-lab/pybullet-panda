@@ -10,9 +10,9 @@ from PIL import Image
 import concurrent.futures
 import psutil
 
-from src.fcn import MLP
-from src.util_depth import getParameters
-from src.util_misc import save__init__args, ensure_directory
+from model.fcn import MLP
+from utils.depth import getParameters
+from utils.misc import save__init__args, ensure_directory
 from panda.util_geom import quatMult, euler2quat
 from panda.panda_env import PandaEnv
 

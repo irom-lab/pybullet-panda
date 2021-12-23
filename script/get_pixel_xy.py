@@ -2,7 +2,7 @@ import pybullet as p
 from panda.panda_env import PandaEnv
 import numpy as np
 
-from src.util_depth import pixelToWorld
+from utils.depth import pixelToWorld
 
 # Initialize env
 p.connect(p.GUI)
