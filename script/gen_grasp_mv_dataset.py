@@ -10,10 +10,8 @@ for urdf_path in urdf_path_all:
     task = {}
     task['obj_path_list'] = [urdf_path]
     print(urdf_path)
-    task['obj_init_state_all'] = [[0.5,0.0,0.0]]
+    task['obj_init_state_all'] = [[0.5, 0.0, 0.0, 0.0]]  # xyz, yaw
+    save_tasks += [task]
 
 # Save
-save_obj(
-    save_tasks,
-    os.path.join('data', 'private', 'ycb_simple_60')
-)
+save_obj(save_tasks, os.path.join('data', 'private', 'ycb_simple_60'))

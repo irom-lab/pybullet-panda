@@ -16,7 +16,7 @@ class Panda:
             finger_name = 'panda_arm_finger_wide_flat'
         else:
             raise NotImplementedError
-        self.urdfRootPath = os.path.join(
+        self._urdf_root_path = os.path.join(
             os.path.dirname(__file__), f'geometry/franka/{finger_name}.urdf')
 
         self.numJoints = 13
@@ -53,7 +53,7 @@ class Panda:
 
     def load(self):
         self.pandaId = p.loadURDF(
-            self.urdfRootPath,
+            self._urdf_root_path,
             basePosition=[0, 0, 0],
             baseOrientation=[0, 0, 0, 1],
             useFixedBase=1,

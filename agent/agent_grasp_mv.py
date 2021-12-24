@@ -56,7 +56,6 @@ class AgentGraspMV(AgentBase):
         episode_record = []
         cnt_opt = 0
         cnt_opt_period = 0
-        cnt_safety_violation = 0
         cnt_num_episode = 0
 
         # Saving model

@@ -1,18 +1,21 @@
 from abc import ABC
 import numpy as np
+import gym
 
 from panda_gym.grasp_env import GraspEnv
 from panda.util_geom import quatMult, euler2quat, euler2quat, quat2rot
+from alano.geometry.camera import rgba2rgb
 
 
 class GraspMultiViewEnv(GraspEnv, ABC):
     def __init__(
         self,
         task=None,
-        render=False,
-        img_H=128,
-        img_W=128,
+        renders=False,
+        img_h=128,
+        img_w=128,
         use_rgb=False,
+        use_depth=True,
         max_steps_train=100,
         max_steps_eval=100,
         done_type='fail',
@@ -39,10 +42,11 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         """
         super(GraspMultiViewEnv, self).__init__(
             task=task,
-            render=render,
-            img_H=img_H,
-            img_W=img_W,
+            renders=renders,
+            img_h=img_h,
+            img_w=img_w,
             use_rgb=use_rgb,
+            use_depth=use_depth,
             max_steps_train=max_steps_train,
             max_steps_eval=max_steps_eval,
             done_type=done_type,
@@ -50,6 +54,24 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             sigma=sigma,
             camera_params=None,  #! use wrist view
         )
+
+        # Wrist view camera
+        self.camera_fov = 90
+        self.camera_aspect = 1
+        self.camera_wrist_offset = [0.04, 0, 0.04]
+        self.camera_max_depth = 1
+
+        # Continuous action space
+        self.action_lim = np.float32(np.array([
+            1.,
+            1.,
+            1.,
+        ]))
+        self.action_space = gym.spaces.Box(-self.action_lim, self.action_lim)
+        self.action_normalization = [0.02, 0.02, np.pi / 4]
+
+        # Fix seed
+        self.seed(0)
 
     @property
     def action_dim(self):
@@ -88,13 +110,13 @@ class GraspMultiViewEnv(GraspEnv, ABC):
 
         # Move
         ee_quat_nxt = quatMult(euler2quat([delta_yaw, 0., 0.]), ee_quat)
-        self.move(ee_pos_nxt, absolute_global_quat=ee_quat_nxt, numSteps=300)
+        self.move(ee_pos_nxt, absolute_global_quat=ee_quat_nxt, num_steps=300)
 
         # Open or close gripper
         if grasp == 1:
-            self.grasp(targetVel=0.10)
+            self.grasp(target_vel=0.10)
         elif grasp == -1:
-            self.grasp(targetVel=-0.10)
+            self.grasp(target_vel=-0.10)
         else:
             raise ValueError
 
@@ -106,23 +128,13 @@ class GraspMultiViewEnv(GraspEnv, ABC):
                 reward = 1
         return self._get_obs(), reward, True, {}
 
-    def _get_obs(self,
-                 offset=[0.04, 0, 0.04],
-                 img_H=160,
-                 img_W=160,
-                 camera_fov=90,
-                 camera_aspect=1):
+    def _get_obs(self):
         """Wrist camera image
         """
         ee_pos, ee_quat = self.get_ee()
         rot_matrix = quat2rot(ee_quat)
-        camera_pos = ee_pos + rot_matrix.dot(offset)
+        camera_pos = ee_pos + rot_matrix.dot(self.camera_wrist_offset)
         # plot_frame_pb(camera_pos, ee_orn)
-
-        # rot_matrix = [0, self.camera_tilt / 180 * np.pi, yaw]
-        # rot_matrix = self._p.getMatrixFromQuaternion(
-        #     self._p.getQuaternionFromEuler(rot_matrix))
-        # rot_matrix = np.array(rot_matrix).reshape(3, 3)
 
         # Initial vectors
         init_camera_vector = (0, 0, 1)  # z-axis
@@ -138,12 +150,25 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         far = 1000.0
         near = 0.01
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_fov, aspect=camera_aspect, nearVal=near, farVal=far)
-        _, _, rgb, depth, _ = p.getCameraImage(
-            img_W,
-            img_H,
+            fov=self.camera_fov,
+            aspect=self.camera_aspect,
+            nearVal=near,
+            farVal=far)
+        _, _, rgb, depth, _ = self._p.getCameraImage(
+            self.img_w,
+            self.img_h,
             view_matrix,
             projection_matrix,
             flags=self._p.ER_NO_SEGMENTATION_MASK)
-        depth = far * near / (far - (far - near) * depth)
-        return depth
+        out = []
+        if self.use_depth:
+            depth = far * near / (far - (far - near) * depth)
+            depth = (self.camera_max_depth - depth) / self.camera_max_depth
+            depth = depth.clip(min=0., max=1.)
+            out += [depth[np.newaxis]]
+        if self.use_rgb:
+            rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
+            out += [rgb]
+        out = np.concatenate(out)
+        print(out.shape)
+        return out
