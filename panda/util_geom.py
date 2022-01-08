@@ -436,12 +436,12 @@ def LinearTimeScaling(Tf, t):
     return t / Tf
 
 
-def traj_time_scaling(self, startPos, endPos, numSteps):
-    trajPos = np.zeros((numSteps, 3))
-    for step in range(numSteps):
-        s = 3 * (1.0 * step / numSteps)**2 - 2 * (1.0 * step / numSteps)**3
-        trajPos[step] = (endPos - startPos) * s + startPos
-    return trajPos
+def traj_time_scaling(self, start_pos, end_pos, num_steps):
+    traj_pos = np.zeros((num_steps, 3))
+    for step in range(num_steps):
+        s = 3 * (1.0 * step / num_steps)**2 - 2 * (1.0 * step / num_steps)**3
+        traj_pos[step] = (end_pos - start_pos) * s + start_pos
+    return traj_pos
 
 
 def full_jacob_pb(jac_t, jac_r):

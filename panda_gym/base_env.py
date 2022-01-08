@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import torch
+import gym
 import pybullet as p
 from pybullet_utils import bullet_client as bc
-import os
-import gym
 
-from panda.utils import save__init__args
-from panda.util_geom import euler2quat, quat2rot, quatMult, log_rot
+from alano.utils.save_init_args import save__init__args
 
 
 class BaseEnv(gym.Env, ABC):
@@ -151,6 +149,10 @@ class BaseEnv(gym.Env, ABC):
         Reset the task for the environment.
         """
         raise NotImplementedError
+
+    @property
+    def state(self):
+        return
 
     def set_train_mode(self):
         """
@@ -383,29 +385,29 @@ class BaseEnv(gym.Env, ABC):
     #     # depth = depth.clip(min=0., max=1.)
     #     return depth
 
-    def get_ee(self):
-        info = self._p.getLinkState(self._panda_id, self._ee_link_id)
-        return self.array(info[4]), self.array(info[5])
-
-    def get_arm_joints(self):  # use list
-        info = self._p.getJointStates(self._panda_id,
-                                      range(self._num_joint_arm))
-        angles = [x[0] for x in info]
-        return angles
-
-    def get_gripper_joint(self):
-        info = self._p.getJointState(
-            self._panda_id, self._left_finger_joint_id)  # assume symmetrical
-        return info[0], info[1]
-
-    def get_ee(self):
+    def _get_ee(self):
         info = self._p.getLinkState(self._panda_id, self._ee_link_id)
         return np.array(info[4]), np.array(info[5])
 
-    def get_left_finger(self):
+    def _get_arm_joints(self):  # use list
+        info = self._p.getJointStates(self._panda_id,
+                                      range(self._num_joint_arm))
+        return np.array([x[0] for x in info])
+
+    def _get_gripper_joint(self):
+        info = self._p.getJointState(
+            self._panda_id, self._left_finger_joint_id)  # assume symmetrical
+        return np.array(info[0]), np.array(info[1])
+
+    def _get_left_finger(self):
         info = self._p.getLinkState(self._panda_id, self._left_finger_link_id)
         return np.array(info[4]), np.array(info[5])
 
-    def get_right_finger(self):
+    def _get_right_finger(self):
         info = self._p.getLinkState(self._panda_id, self._right_finger_link_id)
         return np.array(info[4]), np.array(info[5])
+
+    def _get_state(self):
+        ee_pos, ee_orn = self._get_ee()
+        arm_joints = self._get_arm_joints()  # angles only
+        return np.hstack((ee_pos, ee_orn, arm_joints))

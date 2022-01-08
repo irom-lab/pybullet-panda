@@ -3,7 +3,10 @@ import numpy as np
 import pybullet_data
 
 from panda_gym.base_env import BaseEnv
-from panda.util_geom import quatMult, euler2quat, traj_time_scaling, euler2quat, quat2rot, log_rot, full_jacob_pb
+from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
+from alano.geometry.scaling import traj_time_scaling
+from alano.bullet.kinematics import full_jacob_pb
+from alano.bullet.visualize import plot_frame_pb
 
 
 class GraspEnv(BaseEnv, ABC):
@@ -71,10 +74,10 @@ class GraspEnv(BaseEnv, ABC):
     @property
     def init_joint_angles(self):
         """
-        Initial joint angles for the task
+        Initial joint angles for the task - [0.5, 0, 0.3], straight down - ee to finger tip is 15.5cm
         """
         return [
-            0, -0.1, 0, -2, 0, 1.8, 0.785, 0, -np.pi / 4,
+            0, -0.020, 0, -2.347, 0, 2.327, 0.779, 0, -np.pi / 4,
             self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
         ]
 
@@ -94,6 +97,9 @@ class GraspEnv(BaseEnv, ABC):
         """
         Reset the task for the environment. Load object - task
         """
+        # Clean table
+        for obj_id in self._obj_id_list:
+            self._p.removeBody(obj_id)
 
         # Reset obj info
         self._obj_id_list = []
@@ -165,6 +171,10 @@ class GraspEnv(BaseEnv, ABC):
 
         # Reset task
         self.reset_task(task)
+
+        # Reset timer
+        self.step_elapsed = 0
+
         return self._get_obs()
 
     def step(self, action):
@@ -198,7 +208,7 @@ class GraspEnv(BaseEnv, ABC):
 
         # Check if all objects removed
         self.clear_obj()
-        if len(self.obj_id_list) == 0:
+        if len(self._obj_id_list) == 0:
             reward = 1
         else:
             reward = 0
@@ -207,15 +217,15 @@ class GraspEnv(BaseEnv, ABC):
     def clear_obj(self):
         height = []
         obj_to_be_removed = []
-        for obj_id in self.obj_id_list:
+        for obj_id in self._obj_id_list:
             pos, _ = self._p.getBasePositionAndOrientation(obj_id)
             height += [pos[2]]
-            if pos[2] - self.obj_initial_height_list[obj_id] > 0.03:
+            if pos[2] - self._obj_initial_height_list[obj_id] > 0.03:
                 obj_to_be_removed += [obj_id]
 
         for obj_id in obj_to_be_removed:
             self._p.removeBody(obj_id)
-            self.obj_id_list.remove(obj_id)
+            self._obj_id_list.remove(obj_id)
 
     def move(
         self,
@@ -237,7 +247,7 @@ class GraspEnv(BaseEnv, ABC):
     ):
 
         # Get trajectory
-        ee_pos, ee_quat = self.get_ee()
+        ee_pos, ee_quat = self._get_ee()
 
         # Determine target pos
         if absolute_pos is not None:
@@ -283,7 +293,7 @@ class GraspEnv(BaseEnv, ABC):
                                                vel_gain=vel_gain)
 
             # Send velocity commands to joints
-            for i in range(self.num_joint_arm):
+            for i in range(self._num_joint_arm):
                 self._p.setJointMotorControl2(self._panda_id,
                                               i,
                                               self._p.VELOCITY_CONTROL,
@@ -314,14 +324,14 @@ class GraspEnv(BaseEnv, ABC):
             # Step simulation, takes 1.5ms
             self._p.stepSimulation()
             # timeStep += 1
-        # return timeStep, True
+            # return timeStep, True
 
     def traj_tracking_vel(self,
                           target_pos,
                           target_quat,
                           pos_gain=20,
                           vel_gain=5):  #Change gains based off mouse
-        ee_pos, ee_quat = self.get_ee()
+        ee_pos, ee_quat = self._get_ee()
 
         ee_pos_error = target_pos - ee_pos
         # ee_orn_error = log_rot(quat2rot(target_quat)@(quat2rot(ee_quat).T))  # in spatial frame
@@ -329,24 +339,24 @@ class GraspEnv(BaseEnv, ABC):
             quat2rot(target_quat).dot(
                 (quat2rot(ee_quat).T)))  # in spatial frame
 
-        joint_poses = self.get_arm_joints() + [0, 0, 0]  # add fingers
+        joint_poses = list(
+            np.hstack((self._get_arm_joints(), np.array([0, 0,
+                                                         0]))))  # add fingers
         ee_state = self._p.getLinkState(self._panda_id,
                                         self._ee_link_id,
                                         computeLinkVelocity=1,
                                         computeForwardKinematics=1)
         # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
-        zero_vec = [0.0] * len(joint_poses)
+        zero_vec = list(np.zeros_like(joint_poses))
         jac_t, jac_r = self._p.calculateJacobian(
             self._panda_id, self._ee_link_id, ee_state[2], joint_poses,
             zero_vec, zero_vec)  # use localInertialFrameOrientation
         jac_sp = full_jacob_pb(
             jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three columns
-
         try:
             joint_dot = np.linalg.pinv(jac_sp).dot((np.hstack(
                 (pos_gain * ee_pos_error,
                  vel_gain * ee_orn_error)).reshape(6, 1)))  # pseudo-inverse
         except np.linalg.LinAlgError:
             joint_dot = np.zeros((7, 1))
-
         return joint_dot

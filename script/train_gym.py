@@ -7,7 +7,6 @@ import os
 import argparse
 import time
 import pretty_errors
-import matplotlib
 import wandb
 from shutil import copyfile
 
@@ -15,14 +14,13 @@ from shutil import copyfile
 from agent.agent_grasp_mv import AgentGraspMV
 
 # ENV
-from panda_gym.grasp_mv_env import GraspMultiViewEnv
 from panda_gym.vec_env_grasp_mv import VecEnvGraspMV
 from alano.train.vec_env import make_vec_envs
 from alano.utils.yaml import load_config
 
 simplefilter(action='ignore', category=FutureWarning)
 timestr = time.strftime("%Y-%m-%d-%H_%M")
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 
 
 def main(config_file, config_dict):
@@ -43,11 +41,6 @@ def main(config_file, config_dict):
 
     # Environment
     print("\n== Environment Information ==")
-    if CONFIG_ENV.ENV_NAME == 'GraspMultiView-v0':
-        env_class = GraspMultiViewEnv
-    else:
-        raise NotImplementedError
-
     venv = make_vec_envs(
         env_name=CONFIG_ENV.ENV_NAME,
         seed=CONFIG_TRAINING.SEED,
@@ -57,31 +50,19 @@ def main(config_file, config_dict):
         vec_env_type=VecEnvGraspMV,
         max_steps_train=CONFIG_ENV.MAX_TRAIN_STEPS,
         max_steps_eval=CONFIG_ENV.MAX_EVAL_STEPS,
-        renders=False,  #!
+        renders=CONFIG_ENV.RENDER,
         img_h=CONFIG_ENV.IMG_H,
         img_w=CONFIG_ENV.IMG_W,
         use_rgb=CONFIG_ENV.USE_RGB,
         use_depth=CONFIG_ENV.USE_DEPTH,
     )
-    # env = env_class(
-    #     max_steps_train=CONFIG_ENV.MAX_TRAIN_STEPS,
-    #     max_steps_eval=CONFIG_ENV.MAX_EVAL_STEPS,
-    #     use_append=CONFIG_ENV.USE_APPEND,
-    #     obs_buffer=CONFIG_ENV.OBS_BUFFER,
-    #     g_x_fail=CONFIG_ENV.G_X_FAIL,
-    #     render=False,
-    #     img_H=CONFIG_ENV.IMG_H,
-    #     img_W=CONFIG_ENV.IMG_W,
-    # )
-    # venv.env_method('report', indices=[0])  # call the method for one env
     venv.reset()
-    # env.reset()
 
     # Agent
     print("\n== Agent Information ==")
     if CONFIG_TRAINING.AGENT_NAME == 'AgentGraspMV':
         agent_class = AgentGraspMV
-    agent = agent_class(CONFIG_TRAINING, CONFIG_ARCH, CONFIG_UPDATE,
+    agent = agent_class(CONFIG_TRAINING, CONFIG_UPDATE, CONFIG_ARCH,
                         CONFIG_ENV)
     print('\nTotal parameters in actor: {}'.format(
         sum(p.numel() for p in agent.performance.actor.parameters()

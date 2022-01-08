@@ -4,12 +4,11 @@
 
 import os
 import time
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import wandb
 
-from alano.train.sac_mini import SAC_mini
+from alano.algorithm.sac_mini import SAC_mini
 from alano.train.agent_base import AgentBase
 
 
@@ -30,6 +29,12 @@ class AgentGraspMV(AgentBase):
         super().__init__(CONFIG, CONFIG_ENV, CONFIG_UPDATE)
 
         print("= Constructing policy agent")
+        obs_channel = 0
+        if CONFIG_ENV.USE_RGB:
+            obs_channel += 3
+        if CONFIG_ENV.USE_DEPTH:
+            obs_channel += 1
+        CONFIG_ARCH.OBS_CHANNEL = obs_channel
         self.policy = SAC_mini(CONFIG_UPDATE, CONFIG_ARCH, CONFIG_ENV)
         self.policy.build_network(verbose=verbose)
 
@@ -38,31 +43,17 @@ class AgentGraspMV(AgentBase):
         self.performance = self.policy
 
     def learn(self, venv, current_step=None):
-
-        # hyper-parameters
-        max_steps = self.CONFIG.MAX_STEPS
-        opt_freq = self.CONFIG.OPTIMIZE_FREQ
-        num_update_per_opt = self.CONFIG.UPDATE_PER_OPT
-        check_opt_freq = self.CONFIG.CHECK_OPT_FREQ
-        min_step_b4_opt = self.CONFIG.MIN_STEPS_B4_OPT
-        out_folder = self.CONFIG.OUT_FOLDER
-        # num_rnd_traj = self.CONFIG.NUM_VALIDATION_TRAJS
-
-        # == Main Training ==
         start_learning = time.time()
         train_records = []
         train_progress = [[], []]
-        violation_record = []
-        episode_record = []
-        cnt_opt = 0
-        cnt_opt_period = 0
-        cnt_num_episode = 0
+        cnt_opt = -1
+        cnt_opt_period = -self.min_step_b4_opt
+        num_train_episode = 0
 
         # Saving model
-        model_folder = os.path.join(out_folder, 'model')
+        model_folder = os.path.join(self.out_folder, 'model')
         os.makedirs(model_folder, exist_ok=True)
         self.module_folder_all = [model_folder]
-        save_metric = self.CONFIG.SAVE_METRIC
 
         # Figure folder
         # figure_folder = os.path.join(out_folder, 'figure')
@@ -75,17 +66,44 @@ class AgentGraspMV(AgentBase):
             print("starting from {:d} steps".format(self.cnt_step))
 
         # Reset all envs
-        s, _ = venv.reset()
+        self.venv = venv
+        s = self.set_train_mode()
 
         # Steps
-        while self.cnt_step <= max_steps:
+        while self.cnt_step <= self.max_sample_steps:
             print(self.cnt_step, end='\r')
 
-            # Set train modes for all envs
-            venv.env_method('set_train_mode')
+            ################### Quit eval mode ###################
+            if self.num_eval_episode >= self.num_episode_per_eval:
+                eval_success = self.num_eval_success / self.num_eval_episode
+                print('success rate: ', eval_success)
+                train_progress[0].append([eval_success])
+                train_progress[1].append(self.cnt_step)
+                if self.use_wandb:
+                    wandb.log({
+                        "Success": eval_success,
+                    },
+                              step=self.cnt_step,
+                              commit=True)
 
-            # Get append
-            append_all = venv.get_append(venv.get_attr('_state'))
+                # Saving model
+                if self.save_metric == 'perf':
+                    self.save(metric=eval_success)
+                else:
+                    raise NotImplementedError
+
+                # Save training details
+                torch.save(
+                    {
+                        'train_records': train_records,
+                        'train_progress': train_progress,
+                    }, os.path.join(self.out_folder, 'train_details'))
+
+                # Switch to training
+                s = self.set_train_mode()
+
+            ################### Interact ###################
+            append_all = venv.get_append(venv.get_attr('state'))
 
             # Select action
             with torch.no_grad():
@@ -93,19 +111,26 @@ class AgentGraspMV(AgentBase):
                                                     append=append_all,
                                                     latent=None)
 
+            # Add grasp action (always grasp at the last step): -1 for not grasping and 1 for grasping
+            a_grasp = -torch.ones((self.n_envs, 1))
+            for env_ind in range(self.n_envs):
+                if self.env_step_cnt[env_ind] == self.max_train_steps:
+                    a_grasp[env_ind] = 1
+
             # Apply action - update heading
             s_all, r_all, done_all, info_all = venv.step(a_all)
 
             # Get new append
-            append_nxt_all = venv.get_append(venv.get_attr('_state'))
+            append_nxt_all = venv.get_append(venv.get_attr('state'))
 
             # Check all envs
             for env_ind, (s_, r, done, info) in enumerate(
                     zip(s_all, r_all, done_all, info_all)):
 
                 # Save append
-                info['append'] = append_all[env_ind].unsqueeze(0)
-                info['append_nxt'] = append_nxt_all[env_ind].unsqueeze(0)
+                if append_all is not None:
+                    info['append'] = append_all[env_ind].unsqueeze(0)
+                    info['append_nxt'] = append_nxt_all[env_ind].unsqueeze(0)
 
                 # Store the transition in memory
                 action = a_all[env_ind].unsqueeze(0).clone()
@@ -113,37 +138,41 @@ class AgentGraspMV(AgentBase):
                     s[env_ind].unsqueeze(0).to(self.image_device), action, r,
                     s_.unsqueeze(0).to(self.image_device), done, info)
 
-                # Check finished env
+                # Increment step count for the env
+                self.env_step_cnt[env_ind] += 1
+
+                # Check finished env - reset
                 if done:
                     obs, _ = venv.reset_one(env_ind, verbose=False)
                     s_all[env_ind] = obs
-                    cnt_num_episode += 1
-            episode_record.append(cnt_num_episode)
+                    self.env_step_cnt[env_ind] = 0
+                    if self.eval_mode:
+                        self.num_eval_episode += 1
+                        self.num_eval_success += info['success']
+                    else:
+                        num_train_episode += 1
 
             # Update "prev" states
             s = s_all
 
-            # Optimize
-            if (self.cnt_step >= min_step_b4_opt
-                    and cnt_opt_period >= opt_freq):
+            ################### Optimize ###################
+            if cnt_opt_period >= self.opt_freq:
                 cnt_opt_period = 0
 
                 # Update critic/actor
                 loss = np.zeros(4)
 
-                for timer in range(num_update_per_opt):
-                    batch = self.unpack_batch(self.sample_batch(),
-                                              get_latent=False)
-
+                for timer in range(self.num_update_per_opt):
+                    batch = self.unpack_batch(self.sample_batch())
                     loss_tp = self.policy.update(
-                        batch, timer, update_period=self.UPDATE_PERIOD)
+                        batch, timer, update_period=self.update_period)
                     for i, l in enumerate(loss_tp):
                         loss[i] += l
-                loss /= num_update_per_opt
+                loss /= self.num_update_per_opt
 
                 # Record: loss_q, loss_pi, loss_entropy, loss_alpha
                 train_records.append(loss)
-                if self.CONFIG.USE_WANDB:
+                if self.use_wandb:
                     wandb.log(
                         {
                             "loss_q": loss[0],
@@ -162,66 +191,20 @@ class AgentGraspMV(AgentBase):
                 # Count number of optimization
                 cnt_opt += 1
 
-                # Check after fixed number of steps
-                if cnt_opt % check_opt_freq == 0:
-                    print()
-
-                    # Release GPU RAM as much as possible
-                    torch.cuda.empty_cache()
-
-                    # Set states for check()
-                    # sample_states = self.get_check_states(env, num_rnd_traj)
-                    # progress = self.policy.check(
-                    #     venv,
-                    #     self.cnt_step,
-                    #     states=sample_states,
-                    #     check_type='random',
-                    #     verbose=True,
-                    #     revert_task=True,
-                    #     sample_task=True,
-                    #     num_rnd_traj=num_rnd_traj,
-                    # )
-                    progress = [0, 0]
-                    train_progress[0].append(progress)
-                    train_progress[1].append(self.cnt_step)
-                    if self.CONFIG.USE_WANDB:
-                        wandb.log(
-                            {
-                                "Success": progress[0],
-                                "cnt_num_episode": cnt_num_episode,
-                            },
-                            step=self.cnt_step,
-                            commit=True)
-
-                    # Saving model
-                    if save_metric == 'perf':
-                        self.save(metric=progress[0])
-                    else:
-                        raise NotImplementedError
-
-                    # Save training details
-                    torch.save(
-                        {
-                            'train_records': train_records,
-                            'train_progress': train_progress,
-                            "episode_record": episode_record,
-                        }, os.path.join(out_folder, 'train_details'))
-
-                    # Release GPU RAM as much as possible
-                    torch.cuda.empty_cache()
-
-                    # # Re-initialize env
-                    # env.close_pb()
-                    # env.reset()
+                ################### Eval ###################
+                if cnt_opt % self.check_opt_freq == 0:
+                    s = self.set_eval_mode()
 
             # Count
-            self.cnt_step += self.n_envs
-            cnt_opt_period += self.n_envs
+            if not self.eval_mode:
+                self.cnt_step += self.n_envs
+                cnt_opt_period += self.n_envs
 
-            # Update gamma, lr etc.
-            for _ in range(self.n_envs):
-                self.policy.updateHyperParam()
+                # Update gamma, lr etc.
+                for _ in range(self.n_envs):
+                    self.policy.update_hyper_param()
 
+        ################### Done ###################
         self.save(force_save=True)
         end_learning = time.time()
         time_learning = end_learning - start_learning
@@ -230,5 +213,4 @@ class AgentGraspMV(AgentBase):
         train_records = np.array(train_records)
         for i, tp in enumerate(train_progress):
             train_progress[i] = np.array(tp)
-        episode_record = np.array(episode_record)
-        return train_records, train_progress, violation_record, episode_record
+        return train_records, train_progress

@@ -31,7 +31,7 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             img_W (int, optional): the width of the image. Defaults to 128.
             use_rgb (bool, optional): whether to use RGB image. Defaults to
                 True.
-            render (bool, optional): whether to render the environment.
+            renders (bool, optional): whether to render the environment.
                 Defaults to False.
             max_steps_train (int, optional): the maximum number of steps to
                 train. Defaults to 100.
@@ -68,7 +68,7 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             1.,
         ]))
         self.action_space = gym.spaces.Box(-self.action_lim, self.action_lim)
-        self.action_normalization = [0.02, 0.02, np.pi / 4]
+        self.action_normalization = np.array([0.02, 0.02, np.pi / 4])
 
         # Fix seed
         self.seed(0)
@@ -101,8 +101,13 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         
         Assume action in [x,y,yaw,grasp]
         """
-        delta_x, delta_y, delta_yaw, grasp = action
-        ee_pos, ee_quat = self.get_ee()
+        # Count time
+        self.step_elapsed += 1
+
+        # Extract action
+        action *= self.action_normalization
+        delta_x, delta_y, delta_yaw = action
+        ee_pos, ee_quat = self._get_ee()
         ee_pos_nxt = ee_pos
         ee_pos_nxt[0] += delta_x
         ee_pos_nxt[1] += delta_y
@@ -110,28 +115,43 @@ class GraspMultiViewEnv(GraspEnv, ABC):
 
         # Move
         ee_quat_nxt = quatMult(euler2quat([delta_yaw, 0., 0.]), ee_quat)
-        self.move(ee_pos_nxt, absolute_global_quat=ee_quat_nxt, num_steps=300)
+        self.move(absolute_pos=ee_pos_nxt,
+                  absolute_global_quat=ee_quat_nxt,
+                  num_steps=100)
 
-        # Open or close gripper
-        if grasp == 1:
-            self.grasp(target_vel=0.10)
-        elif grasp == -1:
-            self.grasp(target_vel=-0.10)
+        # Grasp if last step, and then lift
+        if self.step_elapsed == self.max_steps:
+            self.grasp(target_vel=-0.10)  # close
+            self.move(
+                ee_pos_nxt,  # keep for some time
+                absolute_global_quat=ee_quat_nxt,
+                num_steps=100)
+            ee_pos_nxt[2] += 0.2
+            self.move(ee_pos_nxt,
+                      absolute_global_quat=ee_quat_nxt,
+                      num_steps=100)
         else:
-            raise ValueError
+            self.grasp(target_vel=0.10)  # open
 
         # Check if all objects removed
         reward = 0
-        if grasp == -1:
+        success = 0
+        if self.step_elapsed == self.max_steps:
             self.clear_obj()
-            if len(self.obj_id_list) == 0:
+            if len(self._obj_id_list) == 0:
                 reward = 1
-        return self._get_obs(), reward, True, {}
+                success = 1
+
+        # Check termination condition
+        done = False
+        if self.step_elapsed == self.max_steps:
+            done = True
+        return self._get_obs(), reward, done, {'success': success}
 
     def _get_obs(self):
         """Wrist camera image
         """
-        ee_pos, ee_quat = self.get_ee()
+        ee_pos, ee_quat = self._get_ee()
         rot_matrix = quat2rot(ee_quat)
         camera_pos = ee_pos + rot_matrix.dot(self.camera_wrist_offset)
         # plot_frame_pb(camera_pos, ee_orn)
@@ -165,10 +185,29 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             depth = far * near / (far - (far - near) * depth)
             depth = (self.camera_max_depth - depth) / self.camera_max_depth
             depth = depth.clip(min=0., max=1.)
+            depth = np.uint8(depth * 255)  #!
             out += [depth[np.newaxis]]
         if self.use_rgb:
             rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
             out += [rgb]
         out = np.concatenate(out)
-        print(out.shape)
+
+        # import pkgutil
+        # egl = pkgutil.get_loader('eglRenderer')
+        # import pybullet_data
+        # self._p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        # plugin = self._p.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+        # print("plugin=", plugin)
+
+        # from PIL import Image
+        # import matplotlib.pyplot as plt
+        # f, axarr = plt.subplots(1, 2)
+        # axarr[0].imshow(out[0])
+        # axarr[1].imshow(np.transpose(out[1:], (1, 2, 0)))
+        # plt.show()
+        # im_rgb = Image.fromarray(np.transpose(out[1:], (1, 2, 0)))
+        # im_rgb.save('rgb_sample_0.jpg')
+        # im_depth = Image.fromarray(out[0])
+        # im_depth.save('depth_sample_0.jpg')
+
         return out
