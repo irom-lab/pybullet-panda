@@ -3,7 +3,7 @@ import numpy as np
 import gym
 
 from panda_gym.grasp_env import GraspEnv
-from panda.util_geom import quatMult, euler2quat, euler2quat, quat2rot
+from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2rot
 from alano.geometry.camera import rgba2rgb
 
 

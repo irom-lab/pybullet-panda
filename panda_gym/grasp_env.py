@@ -112,7 +112,8 @@ class GraspEnv(BaseEnv, ABC):
             fileName='data/private/bin/bin.obj', rgbaColor=[0.95,0.95,0.95,1])
         obj_id = self._p.createMultiBody(baseMass=0, baseCollisionShapeIndex=obj_collision_id, baseVisualShapeIndex=obj_visual_id,
             basePosition=[0.5,0,0],
-            baseOrientation=[0,0,0,1])
+            baseOrientation=self._p.getQuaternionFromEuler(
+                    [0, 0, np.pi/2]))
         self._obj_id_list += [obj_id]
 
         # Load all

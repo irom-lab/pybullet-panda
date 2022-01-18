@@ -69,7 +69,7 @@ class BaseEnv(gym.Env, ABC):
             _finger_name = 'panda_arm_finger_wide_flat'
         else:
             raise NotImplementedError
-        self._panda_urdf_path = f'panda/geometry/franka/{_finger_name}.urdf'
+        self._panda_urdf_path = f'data/franka/{_finger_name}.urdf'
         self._num_joint = 13
         self._num_joint_arm = 7  # Number of joints in arm (not counting hand)
         self._ee_link_id = 8  # hand, index=7 is link8 (virtual one)
