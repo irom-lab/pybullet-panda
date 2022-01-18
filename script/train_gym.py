@@ -20,7 +20,8 @@ from alano.utils.yaml import load_config
 
 simplefilter(action='ignore', category=FutureWarning)
 timestr = time.strftime("%Y-%m-%d-%H_%M")
-# matplotlib.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 
 
 def main(config_file, config_dict):
@@ -33,7 +34,7 @@ def main(config_file, config_dict):
     copyfile(config_file,
              os.path.join(CONFIG_TRAINING.OUT_FOLDER, 'config.yaml'))
     if CONFIG_TRAINING.USE_WANDB:
-        wandb.init(entity='grasp-mv',
+        wandb.init(entity='allenzren',
                    project=CONFIG_TRAINING.PROJECT_NAME,
                    name=CONFIG_TRAINING.NAME)
         wandb.config.update(CONFIG_ENV)

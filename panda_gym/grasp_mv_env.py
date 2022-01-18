@@ -66,9 +66,12 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             1.,
             1.,
             1.,
+            1.,
+            1.,
         ]))
         self.action_space = gym.spaces.Box(-self.action_lim, self.action_lim)
-        self.action_normalization = np.array([0.02, 0.02, np.pi / 4])
+        self.action_normalization = np.array(
+                [0.02, 0.02, np.pi / 4, 10 * np.pi / 180, 10 * np.pi / 180])  #! TODO: tune
 
         # Fix seed
         self.seed(0)
@@ -106,7 +109,10 @@ class GraspMultiViewEnv(GraspEnv, ABC):
 
         # Extract action
         action *= self.action_normalization
-        delta_x, delta_y, delta_yaw = action
+        delta_x, delta_y, delta_yaw, delta_pitch, delta_roll = action
+        # delta_yaw = 0
+        # delta_pitch = 0
+        # delta_roll = np.pi / 8
         ee_pos, ee_quat = self._get_ee()
         ee_pos_nxt = ee_pos
         ee_pos_nxt[0] += delta_x
@@ -114,7 +120,8 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         ee_pos_nxt[2] -= 0.05  #!
 
         # Move
-        ee_quat_nxt = quatMult(euler2quat([delta_yaw, 0., 0.]), ee_quat)
+        ee_quat_nxt = quatMult(
+            euler2quat([delta_yaw, delta_pitch, delta_roll]), ee_quat)
         self.move(absolute_pos=ee_pos_nxt,
                   absolute_global_quat=ee_quat_nxt,
                   num_steps=100)

@@ -67,7 +67,10 @@ class AgentGraspMV(AgentBase):
 
         # Reset all envs
         self.venv = venv
-        s = self.set_train_mode()
+        if self.eval:
+            s = self.set_eval_mode()
+        else:
+            s = self.set_train_mode()
 
         # Steps
         while self.cnt_step <= self.max_sample_steps:
@@ -106,10 +109,8 @@ class AgentGraspMV(AgentBase):
             append_all = venv.get_append(venv.get_attr('state'))
 
             # Select action
-            with torch.no_grad():
-                a_all, _ = self.policy.actor.sample(s,
-                                                    append=append_all,
-                                                    latent=None)
+            with torch.no_grad():                
+                a_all  = self.forward(s, append=append_all, latent=None)
 
             # Add grasp action (always grasp at the last step): -1 for not grasping and 1 for grasping
             a_grasp = -torch.ones((self.n_envs, 1))

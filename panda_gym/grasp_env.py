@@ -6,7 +6,6 @@ from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
-from alano.bullet.visualize import plot_frame_pb
 
 
 class GraspEnv(BaseEnv, ABC):
@@ -105,10 +104,22 @@ class GraspEnv(BaseEnv, ABC):
         self._obj_id_list = []
         self._obj_initial_height_list = {}
 
+        # Add bin
+        obj_collision_id = self._p.createCollisionShape(shapeType=self._p.GEOM_MESH,
+            fileName='data/private/bin/bin.obj',
+            flags=self._p.GEOM_FORCE_CONCAVE_TRIMESH)
+        obj_visual_id = self._p.createVisualShape(shapeType=self._p.GEOM_MESH,
+            fileName='data/private/bin/bin.obj', rgbaColor=[0.95,0.95,0.95,1])
+        obj_id = self._p.createMultiBody(baseMass=0, baseCollisionShapeIndex=obj_collision_id, baseVisualShapeIndex=obj_visual_id,
+            basePosition=[0.5,0,0],
+            baseOrientation=[0,0,0,1])
+        self._obj_id_list += [obj_id]
+
         # Load all
         obj_path_list = task['obj_path_list']
         obj_init_state_all = task['obj_init_state_all']
         for obj_path, obj_init_state in zip(obj_path_list, obj_init_state_all):
+            obj_init_state[-2] += 0.1
             obj_id = self._p.loadURDF(
                 obj_path,
                 basePosition=obj_init_state[:-1],

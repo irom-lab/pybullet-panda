@@ -92,12 +92,12 @@ class FlipEnv(PandaEnv):
 
             # Step simulation, takes 1.5ms
             p.stepSimulation()
-            time.sleep(0.01)
-            print(
-                p.getLinkState(self._pandaId,
-                               self._panda.pandaEndEffectorLinkIndex,
-                               computeLinkVelocity=1)[6])
-            print(p.getBaseVelocity(objId)[1])
-            print("===")
+            # time.sleep(0.01)
+            # print(
+            #     p.getLinkState(self._pandaId,
+            #                    self._panda.pandaEndEffectorLinkIndex,
+            #                    computeLinkVelocity=1)[6])
+            # print(p.getBaseVelocity(objId)[1])
+            # print("===")
 
         return
