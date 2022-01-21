@@ -36,7 +36,9 @@ class AgentGraspMV(AgentBase):
             obs_channel += 1
         CONFIG_ARCH.OBS_CHANNEL = obs_channel
         self.policy = SAC_mini(CONFIG_UPDATE, CONFIG_ARCH, CONFIG_ENV)
-        self.policy.build_network(verbose=verbose)
+        self.policy.build_network(verbose=verbose, 
+                                actor_path=CONFIG_UPDATE.ACTOR_PATH, 
+                                critic_path=CONFIG_UPDATE.CRITIC_PATH)
 
         # alias
         self.module_all = [self.policy]
@@ -79,19 +81,22 @@ class AgentGraspMV(AgentBase):
             ################### Quit eval mode ###################
             if self.num_eval_episode >= self.num_episode_per_eval:
                 eval_success = self.num_eval_success / self.num_eval_episode
+                eval_safe = self.num_eval_safe / self.num_eval_episode
                 print('success rate: ', eval_success)
-                train_progress[0].append([eval_success])
+                print('safe rate: ', eval_safe)
+                train_progress[0].append([eval_success, eval_safe])
                 train_progress[1].append(self.cnt_step)
                 if self.use_wandb:
                     wandb.log({
                         "Success": eval_success,
-                    },
-                              step=self.cnt_step,
-                              commit=True)
+                        "Safe": eval_safe,
+                    }, step=self.cnt_step, commit=True)
 
                 # Saving model
-                if self.save_metric == 'perf':
+                if self.save_metric == 'success':
                     self.save(metric=eval_success)
+                elif self.save_metric == 'safe':
+                    self.save(metric=eval_safe)
                 else:
                     raise NotImplementedError
 
@@ -110,7 +115,7 @@ class AgentGraspMV(AgentBase):
 
             # Select action
             with torch.no_grad():                
-                a_all  = self.forward(s, append=append_all, latent=None)
+                a_all = self.forward(s, append=append_all, latent=None)
 
             # Add grasp action (always grasp at the last step): -1 for not grasping and 1 for grasping
             a_grasp = -torch.ones((self.n_envs, 1))
@@ -142,16 +147,21 @@ class AgentGraspMV(AgentBase):
                 # Increment step count for the env
                 self.env_step_cnt[env_ind] += 1
 
-                # Check finished env - reset
+                # Check done for particular env
                 if done:
-                    obs, _ = venv.reset_one(env_ind, verbose=False)
-                    s_all[env_ind] = obs
                     self.env_step_cnt[env_ind] = 0
                     if self.eval_mode:
                         self.num_eval_episode += 1
                         self.num_eval_success += info['success']
+                        self.num_eval_safe += (info['success'] and info['safe'])
                     else:
                         num_train_episode += 1
+
+            # Reset for all since fixed horizon
+            if done_all[0]:
+                s_all, _ = self.venv.reset()
+                # obs, _ = venv.reset_one(env_ind, verbose=False)
+                # s_all[env_ind] = obs
 
             # Update "prev" states
             s = s_all
@@ -186,8 +196,8 @@ class AgentGraspMV(AgentBase):
 
                 # Re-initialize pb to avoid memory explosion from mesh loading
                 # - this will also terminates any trajectories at sampling
-                # venv.env_method('close_pb')
-                # s, _ = venv.reset(random_init=random_init)
+                venv.env_method('close_pb')
+                s, _ = venv.reset()
 
                 # Count number of optimization
                 cnt_opt += 1

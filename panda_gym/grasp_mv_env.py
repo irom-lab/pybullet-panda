@@ -1,9 +1,10 @@
 from abc import ABC
 import numpy as np
 import gym
+import math
 
 from panda_gym.grasp_env import GraspEnv
-from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2rot
+from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2rot, quat2euler
 from alano.geometry.camera import rgba2rgb
 
 
@@ -20,7 +21,7 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         max_steps_eval=100,
         done_type='fail',
         #
-        mu=0.5,
+        mu=0.3,
         sigma=0.01,
         # camera_params=None,
     ):
@@ -56,9 +57,9 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         )
 
         # Wrist view camera
-        self.camera_fov = 90
-        self.camera_aspect = 1
-        self.camera_wrist_offset = [0.04, 0, 0.04]
+        self.camera_fov = 50    # https://www.intel.com/content/www/us/en/support/articles/000030385/emerging-technologies/intel-realsense-technology.html
+        self.camera_aspect = 1.5
+        self.camera_wrist_offset = [0.03, -0.0325, 0.06]  # https://support.intelrealsense.com/hc/en-us/community/posts/360047245353-Locating-the-origin-of-the-reference-system
         self.camera_max_depth = 1
 
         # Continuous action space
@@ -66,12 +67,14 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             1.,
             1.,
             1.,
-            1.,
-            1.,
+            # 1.,
+            # 1.,
         ]))
         self.action_space = gym.spaces.Box(-self.action_lim, self.action_lim)
+        # self.action_normalization = np.array(
+        #         [0.02, 0.02, 10 * np.pi / 180, 10 * np.pi / 180, 10 * np.pi / 180])  #! TODO: tune
         self.action_normalization = np.array(
-                [0.02, 0.02, np.pi / 4, 10 * np.pi / 180, 10 * np.pi / 180])  #! TODO: tune
+                [0.02, 0.02, 0.05, 15 * np.pi / 180])  #! TODO: tune
 
         # Fix seed
         self.seed(0)
@@ -109,22 +112,40 @@ class GraspMultiViewEnv(GraspEnv, ABC):
 
         # Extract action
         action *= self.action_normalization
-        delta_x, delta_y, delta_yaw, delta_pitch, delta_roll = action
-        # delta_yaw = 0
-        # delta_pitch = 0
-        # delta_roll = np.pi / 8
+        # delta_x, delta_y, delta_yaw, delta_pitch, delta_roll = action
+        delta_x, delta_y, delta_z, delta_yaw = action
+        delta_pitch = 0
+        delta_roll = 0
         ee_pos, ee_quat = self._get_ee()
         ee_pos_nxt = ee_pos
         ee_pos_nxt[0] += delta_x
         ee_pos_nxt[1] += delta_y
-        ee_pos_nxt[2] -= 0.05  #!
+        ee_pos_nxt[2] -= delta_z
 
         # Move
         ee_quat_nxt = quatMult(
             euler2quat([delta_yaw, delta_pitch, delta_roll]), ee_quat)
+        collision_obj_id_list = None
+        # if self.step_elapsed >= 3:
+        #     collision_obj_id_list = self._obj_id_list
         self.move(absolute_pos=ee_pos_nxt,
                   absolute_global_quat=ee_quat_nxt,
-                  num_steps=100)
+                  num_steps=100,
+                  collision_obj_id_list=collision_obj_id_list)
+
+        # Check if object moved or gripper rolled or pitched, meaning contact happened
+        flag_obj_move = False
+        flag_ee_move = False
+        for obj_id in self._obj_id_list:
+            pos, _ = self._p.getBasePositionAndOrientation(obj_id)
+            if math.sqrt((pos[0] - self._obj_initial_pos_list[obj_id][0])**2 + (pos[1] - self._obj_initial_pos_list[obj_id][1])**2) > 0.005:
+                # print('moved ', obj_id)
+                flag_obj_move = True
+                break
+        ee_euler = quat2euler(self._get_ee()[1])
+        if abs(ee_euler[1]) > 0.1:
+            flag_ee_move = True
+            # print('ee moved')
 
         # Grasp if last step, and then lift
         if self.step_elapsed == self.max_steps:
@@ -141,19 +162,22 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             self.grasp(target_vel=0.10)  # open
 
         # Check if all objects removed
-        reward = 0
+        reward = 0.2
         success = 0
         if self.step_elapsed == self.max_steps:
-            self.clear_obj()
-            if len(self._obj_id_list) == 0:
+            num_obj_clear = self.clear_obj()
+            if num_obj_clear > 0:
                 reward = 1
                 success = 1
+        if flag_obj_move or flag_ee_move:
+            reward = 0
+            self.safe_trial = False
 
         # Check termination condition
         done = False
         if self.step_elapsed == self.max_steps:
             done = True
-        return self._get_obs(), reward, done, {'success': success}
+        return self._get_obs(), reward, done, {'success': success, 'safety': self.safe_trial}
 
     def _get_obs(self):
         """Wrist camera image

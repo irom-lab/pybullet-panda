@@ -21,7 +21,7 @@ class GraspEnv(BaseEnv, ABC):
         max_steps_eval=100,
         done_type='fail',
         #
-        mu=0.5,
+        mu=0.3,
         sigma=0.01,
         camera_params=None,
     ):
@@ -57,7 +57,7 @@ class GraspEnv(BaseEnv, ABC):
 
         # Object id
         self._obj_id_list = []
-        self._obj_initial_height_list = {}
+        self._obj_initial_pos_list = {}
         self._urdf_root = pybullet_data.getDataPath()
 
         # Camera info
@@ -73,12 +73,21 @@ class GraspEnv(BaseEnv, ABC):
     @property
     def init_joint_angles(self):
         """
-        Initial joint angles for the task - [0.5, 0, 0.3], straight down - ee to finger tip is 15.5cm
+        Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
         """
         return [
-            0, -0.020, 0, -2.347, 0, 2.327, 0.779, 0, -np.pi / 4,
+            0, -0.255, 0, -2.437, 0, 2.181, 0.779, 0, -np.pi / 4,
             self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
         ]
+
+    @property
+    def up_joint_angles(self):
+        """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
+        """
+        return [0, 1.643, 0, 1.167, 0, 0.476, 0.779, 0, -np.pi / 4,
+            self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
+        ]
+
 
     def report(self):
         """
@@ -102,30 +111,50 @@ class GraspEnv(BaseEnv, ABC):
 
         # Reset obj info
         self._obj_id_list = []
-        self._obj_initial_height_list = {}
+        self._obj_initial_pos_list = {}
 
-        # Add bin
-        obj_collision_id = self._p.createCollisionShape(shapeType=self._p.GEOM_MESH,
-            fileName='data/private/bin/bin.obj',
-            flags=self._p.GEOM_FORCE_CONCAVE_TRIMESH)
-        obj_visual_id = self._p.createVisualShape(shapeType=self._p.GEOM_MESH,
-            fileName='data/private/bin/bin.obj', rgbaColor=[0.95,0.95,0.95,1])
-        obj_id = self._p.createMultiBody(baseMass=0, baseCollisionShapeIndex=obj_collision_id, baseVisualShapeIndex=obj_visual_id,
-            basePosition=[0.5,0,0],
-            baseOrientation=self._p.getQuaternionFromEuler(
-                    [0, 0, np.pi/2]))
-        self._obj_id_list += [obj_id]
+        # Add bin - make friction very high so mug does not move much after dropping
+        # obj_collision_id = self._p.createCollisionShape(shapeType=self._p.GEOM_MESH,
+        #     fileName='data/private/bin/bin.obj',
+        #     # meshScale=[0.8,0.8,1.0],
+        #     flags=self._p.GEOM_FORCE_CONCAVE_TRIMESH)
+        # obj_visual_id = self._p.createVisualShape(shapeType=self._p.GEOM_MESH,
+        #     # meshScale=[0.8,0.8,1.0],
+        #     fileName='data/private/bin/bin.obj', rgbaColor=[0.95,0.95,0.95,1])
+        # obj_id = self._p.createMultiBody(baseMass=0, baseCollisionShapeIndex=obj_collision_id, baseVisualShapeIndex=obj_visual_id,
+        #     basePosition=[0.5,0,0],
+        #     baseOrientation=self._p.getQuaternionFromEuler(
+        #             [0, 0, np.pi/2]))
+        # self._p.changeDynamics(
+        #     obj_id,
+        #     -1,
+        #     lateralFriction=1,
+        #     spinningFriction=0.1,
+        #     rollingFriction=0.01,
+        #     frictionAnchor=1,
+        # )
+        # self._obj_id_list += [obj_id]
 
         # Load all
         obj_path_list = task['obj_path_list']
-        obj_init_state_all = task['obj_init_state_all']
-        for obj_path, obj_init_state in zip(obj_path_list, obj_init_state_all):
-            obj_init_state[-2] += 0.1
+        obj_state_all = task['obj_state_all']
+        obj_rgba_all = task['obj_rgba_all']
+        obj_scale_all = task['obj_scale_all']
+        obj_height_all = task['obj_height_all']
+        for obj_path, obj_state, obj_rgba, obj_scale, obj_height in zip(obj_path_list, obj_state_all, obj_rgba_all, obj_scale_all, obj_height_all):
+            # obj_state[3:] = 0
+            # obj_path = '/home/allen/data/processed_objects/SNC_v4_mug/0.urdf'
+            # obj_path = '/home/allen/data/processed_objects/SNC_v4/03797390/16.urdf'
+
+            # Use mug height for initial z
+            obj_state[2] = obj_height / 2 + 0.005
+
+            # load urdf
             obj_id = self._p.loadURDF(
                 obj_path,
-                basePosition=obj_init_state[:-1],
-                baseOrientation=self._p.getQuaternionFromEuler(
-                    [0, 0, obj_init_state[-1]]))
+                basePosition=obj_state[:3],
+                baseOrientation=euler2quat(obj_state[3:]), 
+                globalScaling=obj_scale)
             self._obj_id_list += [obj_id]
 
             # Infer number of links - change dynamics for each
@@ -140,14 +169,21 @@ class GraspEnv(BaseEnv, ABC):
                     frictionAnchor=1,
                 )
 
-        # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
-        for _ in range(10):
-            self._p.stepSimulation()
+            # Change color - assume base link
+            # texture_id = self._p.loadTexture('/home/allen/data/dtd/images/banded/banded_0002_t.jpg')
+            for link_id in link_all:
+                self._p.changeVisualShape(obj_id, link_id,
+                                        #   textureUniqueId=texture_id) 
+                                          rgbaColor=obj_rgba)
+
+            # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
+            for _ in range(50):
+                self._p.stepSimulation()
 
         # Record object initial height (for comparing with final height when checking if lifted). Note that obj_initial_height_list is a dict
         for obj_id in self._obj_id_list:
             pos, _ = self._p.getBasePositionAndOrientation(obj_id)
-            self._obj_initial_height_list[obj_id] = pos[2]
+            self._obj_initial_pos_list[obj_id] = pos
 
     def reset(self, task=None):
         """
@@ -178,14 +214,23 @@ class GraspEnv(BaseEnv, ABC):
                 frictionAnchor=1,
             )
 
+            # Reset object info
+            self._obj_id_list = []
+            self._obj_initial_pos_list = {}
+
+        # Reset task - add object before arm down
+        if self._panda_id >= 0:
+            self.reset_robot_joints(self.up_joint_angles)
+        self.reset_task(task)
+
         # Load arm, no need to settle (joint angle set instantly)
         self.reset_robot(self._mu, self._sigma)
 
-        # Reset task
-        self.reset_task(task)
-
         # Reset timer
         self.step_elapsed = 0
+        
+        # Reset safety of the trial
+        self.safe_trial = False
 
         return self._get_obs()
 
@@ -232,12 +277,13 @@ class GraspEnv(BaseEnv, ABC):
         for obj_id in self._obj_id_list:
             pos, _ = self._p.getBasePositionAndOrientation(obj_id)
             height += [pos[2]]
-            if pos[2] - self._obj_initial_height_list[obj_id] > 0.03:
+            if pos[2] - self._obj_initial_pos_list[obj_id][2] > 0.03:
                 obj_to_be_removed += [obj_id]
 
         for obj_id in obj_to_be_removed:
             self._p.removeBody(obj_id)
             self._obj_id_list.remove(obj_id)
+        return len(obj_to_be_removed)
 
     def move(
         self,
@@ -248,14 +294,12 @@ class GraspEnv(BaseEnv, ABC):
         relative_local_euler=None,  # not using
         absolute_global_quat=None,  # preferred
         relative_azi=None,  # for arm
+        # relative_quat=None,  # never use relative quat
         num_steps=50,
         max_joint_vel=0.20,
-        # time_step=0,
-        # check_contact=False,
-        # obj_id=None,
         pos_gain=20,
         vel_gain=5,
-        # relative_quat=None,  # never use relative quat
+        collision_obj_id_list=None
     ):
 
         # Get trajectory
@@ -327,16 +371,15 @@ class GraspEnv(BaseEnv, ABC):
                                           force=self._max_finger_force,
                                           maxVelocity=0.10)
 
-            # # Quit if contact at either finger
-            # if check_contact:
-            #     contact = self.check_contact(objId, both=False)
-            #     if contact:
-            #         return timeStep, False
+            # Check contact
+            # if collision_obj_id_list is not None:
+            #     for obj_id in collision_obj_id_list:
+            #         contact_info = self._get_finger_force(obj_id)
+            #         if contact_info is not None:
+            #             print(contact_info[-2:])
 
             # Step simulation, takes 1.5ms
             self._p.stepSimulation()
-            # timeStep += 1
-            # return timeStep, True
 
     def traj_tracking_vel(self,
                           target_pos,
