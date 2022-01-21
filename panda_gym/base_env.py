@@ -193,8 +193,8 @@ class BaseEnv(gym.Env, ABC):
         Initialize PyBullet environment.
         """
         if self.renders:
-            self._p = bc.BulletClient(connection_mode=p.GUI)
-            self._p.resetDebugVisualizerCamera(0.8, 180, -45, [0.5, 0, 0])
+            self._p = bc.BulletClient(connection_mode=p.GUI, options='--width=2000 --height=1600')
+            self._p.resetDebugVisualizerCamera(0.8, 90, -40, [0.5, 0, 0])
         else:
             self._p = bc.BulletClient(connection_mode=p.DIRECT)
         self._physics_client_id = self._p._client
@@ -267,6 +267,9 @@ class BaseEnv(gym.Env, ABC):
         # Reset all joint angles
         self.reset_robot_joints(self.init_joint_angles)
 
+        # Kep gripper open
+        self.grasp(target_vel=0.10)
+
     def reset_robot_joints(self, angles):
         """[summary]
 
@@ -311,18 +314,6 @@ class BaseEnv(gym.Env, ABC):
         ]
         self.reset_robot_joints(joint_poses)
 
-    # def reset_arm_joints(self, joints):
-    #     """[summary]
-
-    #     Args:
-    #         joints ([type]): [description]
-    #     """
-    #     jointPoses = joints + [
-    #         0, -np.pi / 4, self._panda.fingerOpenPos, 0.00,
-    #         self._panda.fingerOpenPos, 0.00
-    #     ]
-    #     self._panda.reset(jointPoses)
-
     @abstractmethod
     def move(self):
         """
@@ -347,43 +338,6 @@ class BaseEnv(gym.Env, ABC):
     @abstractmethod
     def _get_obs(self):
         raise NotImplementedError
-
-    # def _get_obs(self, camera_params):
-    #     """Return unnormalized depth image
-
-    #     Args:
-    #         camera_params ([type]): [description]
-
-    #     Returns:
-    #         [type]: [description]
-    #     """
-    #     view_mat = camera_params['view_mat']
-    #     proj_mat = camera_params['proj_mat']
-    #     width_orig = camera_params['width_orig']
-    #     height_orig = camera_params['height_orig']
-    #     near = camera_params['near']
-    #     far = camera_params['far']
-    #     width = camera_params['width']
-    #     height = camera_params['height']
-    #     assert width == self.img_w, "Inconsistent image width!"
-    #     assert height == self.img_h, "Inconsistent image height!"
-
-    #     img_arr = self._p.getCameraImage(width=width_orig,
-    #                                      height=height_orig,
-    #                                      viewMatrix=view_mat,
-    #                                      projectionMatrix=proj_mat,
-    #                                      flags=self._p.ER_NO_SEGMENTATION_MASK)
-    #     center = width_orig // 2  # assume square for now
-    #     depth = np.reshape(
-    #         img_arr[3],
-    #         (width_orig, height_orig))[center - width // 2:center + width // 2,
-    #                                    center - height // 2:center +
-    #                                    height // 2]
-    #     depth = far * near / (far - (far - near) * depth)
-    #     # depth = (0.3 -
-    #     #          depth) / self.max_obj_height  # set table zero, and normalize
-    #     # depth = depth.clip(min=0., max=1.)
-    #     return depth
 
     def _get_ee(self):
         info = self._p.getLinkState(self._panda_id, self._ee_link_id)
@@ -411,3 +365,59 @@ class BaseEnv(gym.Env, ABC):
         ee_pos, ee_orn = self._get_ee()
         arm_joints = self._get_arm_joints()  # angles only
         return np.hstack((ee_pos, ee_orn, arm_joints))
+
+    def _check_obj_contact(self, obj_id, both=False):
+        left_contacts, right_contacts = self._get_finger_contact(obj_id)
+        if both:
+            if len(left_contacts) > 0 and len(right_contacts) > 0:
+                return 1
+        else:
+            if len(left_contacts) > 0 or len(right_contacts) > 0:
+                return 1
+        return 0
+
+    def _get_finger_contact(self, obj_id, min_force=1e-1):
+        left_contacts = self._p.getContactPoints(
+            self._panda_id,
+            obj_id,
+            linkIndexA=self._left_finger_link_id,
+            linkIndexB=-1)
+        right_contacts = self._p.getContactPoints(
+            self._panda_id,
+            obj_id,
+            linkIndexA=self._right_finger_link_id,
+            linkIndexB=-1)
+        left_contacts = [i for i in left_contacts if i[9] > min_force]
+        right_contacts = [i for i in right_contacts if i[9] > min_force]
+        return left_contacts, right_contacts
+
+    def _get_finger_force(self, obj_id):
+        left_contacts, right_contacts = self._get_finger_contact(obj_id)
+        left_force = np.zeros((3))
+        right_force = np.zeros((3))
+        for i in left_contacts:
+            left_force += i[9] * np.array(i[7]) + i[10] * np.array(
+                i[11]) + i[12] * np.array(i[13])
+        for i in right_contacts:
+            right_force += i[9] * np.array(i[7]) + i[10] * np.array(
+                i[11]) + i[12] * np.array(i[13])
+        left_normal_mag = sum([i[9] for i in left_contacts])
+        right_normal_mag = sum([i[9] for i in right_contacts])
+        num_left_contact = len(left_contacts)
+        num_right_contact = len(right_contacts)
+        # print((left_normal_mag, right_normal_mag, num_left_contact, num_right_contact))
+
+        if num_left_contact < 1 or num_right_contact < 1:
+            # print((numLeftContact, numRightContact))
+            return None
+        else:
+            return left_force, right_force, \
+             np.array(left_contacts[0][6]), np.array(right_contacts[0][6]), \
+             left_normal_mag, right_normal_mag
+
+    def _check_hold_object(self, obj_id, min_force=10.0):
+        left_contacts, right_contacts = self._get_finger_contact(obj_id)
+        left_normal_mag = sum([i[9] for i in left_contacts])
+        right_normal_mag = sum([i[9] for i in right_contacts])
+        return left_normal_mag > min_force and right_normal_mag > min_force
+
