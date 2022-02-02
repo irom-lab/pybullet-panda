@@ -8,6 +8,10 @@ from pybullet_utils import bullet_client as bc
 from alano.utils.save_init_args import save__init__args
 
 
+def normalize_action(action, lower, upper):
+    # assume action in [-1,1]
+    return (action+1)/2*(upper-lower) + lower
+
 class BaseEnv(gym.Env, ABC):
     def __init__(self,
                  task=None,
@@ -72,6 +76,7 @@ class BaseEnv(gym.Env, ABC):
         self._panda_urdf_path = f'data/franka/{_finger_name}.urdf'
         self._num_joint = 13
         self._num_joint_arm = 7  # Number of joints in arm (not counting hand)
+        self._ee_joint_id = 7   # fixed virtual joint
         self._ee_link_id = 8  # hand, index=7 is link8 (virtual one)
         self._left_finger_link_id = 10  # lower
         self._right_finger_link_id = 12
@@ -177,7 +182,6 @@ class BaseEnv(gym.Env, ABC):
             seed (int, optional): random seed value. Defaults to 0.
         """
         self.seed_val = seed
-        self.action_space.seed(self.seed_val)
         self.rng = np.random.default_rng(seed=self.seed_val)
         torch.manual_seed(self.seed_val)
         torch.cuda.manual_seed(self.seed_val)
@@ -263,6 +267,9 @@ class BaseEnv(gym.Env, ABC):
                                        i,
                                        linearDamping=0,
                                        angularDamping=0)
+
+            # Measure EE joint
+            self._p.enableJointForceTorqueSensor(self._panda_id, self._ee_joint_id, 1)
 
         # Reset all joint angles
         self.reset_robot_joints(self.init_joint_angles)
@@ -377,18 +384,25 @@ class BaseEnv(gym.Env, ABC):
         return 0
 
     def _get_finger_contact(self, obj_id, min_force=1e-1):
-        left_contacts = self._p.getContactPoints(
-            self._panda_id,
-            obj_id,
-            linkIndexA=self._left_finger_link_id,
-            linkIndexB=-1)
-        right_contacts = self._p.getContactPoints(
-            self._panda_id,
-            obj_id,
-            linkIndexA=self._right_finger_link_id,
-            linkIndexB=-1)
-        left_contacts = [i for i in left_contacts if i[9] > min_force]
-        right_contacts = [i for i in right_contacts if i[9] > min_force]
+        num_joint = self._p.getNumJoints(obj_id)
+        link_all = [-1] + [*range(num_joint)]
+        left_contacts = []
+        right_contacts = []
+        for link_id in link_all:
+            left_contact = self._p.getContactPoints(
+                self._panda_id,
+                obj_id,
+                linkIndexA=self._left_finger_link_id,
+                linkIndexB=link_id)
+            right_contact = self._p.getContactPoints(
+                self._panda_id,
+                obj_id,
+                linkIndexA=self._right_finger_link_id,
+                linkIndexB=link_id)
+            left_contact = [i for i in left_contact if i[9] > min_force]
+            right_contact = [i for i in right_contact if i[9] > min_force]
+            left_contacts += left_contact
+            right_contacts += right_contact
         return left_contacts, right_contacts
 
     def _get_finger_force(self, obj_id):
@@ -405,10 +419,8 @@ class BaseEnv(gym.Env, ABC):
         right_normal_mag = sum([i[9] for i in right_contacts])
         num_left_contact = len(left_contacts)
         num_right_contact = len(right_contacts)
-        # print((left_normal_mag, right_normal_mag, num_left_contact, num_right_contact))
 
         if num_left_contact < 1 or num_right_contact < 1:
-            # print((numLeftContact, numRightContact))
             return None
         else:
             return left_force, right_force, \

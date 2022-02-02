@@ -299,8 +299,8 @@
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0.029"/>
       <geometry>
-        <!-- <box size="0.018 0.015 0.108"/> -->
         <mesh filename="meshes/collision/franka_finger_lower_long.stl"/>
+        <!-- <box size="0.018 0.015 0.108"/> -->
       </geometry>
     </collision>
     <inertial>

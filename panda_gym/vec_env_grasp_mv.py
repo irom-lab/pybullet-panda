@@ -20,3 +20,7 @@ class VecEnvGraspMV(VecEnvBase):
             return append_all.to(self.device)
         else:
             return None
+        
+class VecEnvGraspMVRandom(VecEnvGraspMV):
+    def __init__(self, venv, device, config_env):
+        super(VecEnvGraspMVRandom, self).__init__(venv, device, config_env)

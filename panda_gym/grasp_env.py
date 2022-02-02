@@ -21,8 +21,8 @@ class GraspEnv(BaseEnv, ABC):
         max_steps_eval=100,
         done_type='fail',
         #
-        mu=0.3,
-        sigma=0.01,
+        mu=0.5,
+        sigma=0.03,
         camera_params=None,
     ):
         """
@@ -105,85 +105,7 @@ class GraspEnv(BaseEnv, ABC):
         """
         Reset the task for the environment. Load object - task
         """
-        # Clean table
-        for obj_id in self._obj_id_list:
-            self._p.removeBody(obj_id)
-
-        # Reset obj info
-        self._obj_id_list = []
-        self._obj_initial_pos_list = {}
-
-        # Add bin - make friction very high so mug does not move much after dropping
-        # obj_collision_id = self._p.createCollisionShape(shapeType=self._p.GEOM_MESH,
-        #     fileName='data/private/bin/bin.obj',
-        #     # meshScale=[0.8,0.8,1.0],
-        #     flags=self._p.GEOM_FORCE_CONCAVE_TRIMESH)
-        # obj_visual_id = self._p.createVisualShape(shapeType=self._p.GEOM_MESH,
-        #     # meshScale=[0.8,0.8,1.0],
-        #     fileName='data/private/bin/bin.obj', rgbaColor=[0.95,0.95,0.95,1])
-        # obj_id = self._p.createMultiBody(baseMass=0, baseCollisionShapeIndex=obj_collision_id, baseVisualShapeIndex=obj_visual_id,
-        #     basePosition=[0.5,0,0],
-        #     baseOrientation=self._p.getQuaternionFromEuler(
-        #             [0, 0, np.pi/2]))
-        # self._p.changeDynamics(
-        #     obj_id,
-        #     -1,
-        #     lateralFriction=1,
-        #     spinningFriction=0.1,
-        #     rollingFriction=0.01,
-        #     frictionAnchor=1,
-        # )
-        # self._obj_id_list += [obj_id]
-
-        # Load all
-        obj_path_list = task['obj_path_list']
-        obj_state_all = task['obj_state_all']
-        obj_rgba_all = task['obj_rgba_all']
-        obj_scale_all = task['obj_scale_all']
-        obj_height_all = task['obj_height_all']
-        for obj_path, obj_state, obj_rgba, obj_scale, obj_height in zip(obj_path_list, obj_state_all, obj_rgba_all, obj_scale_all, obj_height_all):
-            # obj_state[3:] = 0
-            # obj_path = '/home/allen/data/processed_objects/SNC_v4_mug/0.urdf'
-            # obj_path = '/home/allen/data/processed_objects/SNC_v4/03797390/16.urdf'
-
-            # Use mug height for initial z
-            obj_state[2] = obj_height / 2 + 0.005
-
-            # load urdf
-            obj_id = self._p.loadURDF(
-                obj_path,
-                basePosition=obj_state[:3],
-                baseOrientation=euler2quat(obj_state[3:]), 
-                globalScaling=obj_scale)
-            self._obj_id_list += [obj_id]
-
-            # Infer number of links - change dynamics for each
-            num_joint = self._p.getNumJoints(obj_id)
-            link_all = [-1] + [*range(num_joint)]
-            for link_id in link_all:
-                self._p.changeDynamics(
-                    obj_id,
-                    link_id,
-                    lateralFriction=self._mu,
-                    spinningFriction=self._sigma,
-                    frictionAnchor=1,
-                )
-
-            # Change color - assume base link
-            # texture_id = self._p.loadTexture('/home/allen/data/dtd/images/banded/banded_0002_t.jpg')
-            for link_id in link_all:
-                self._p.changeVisualShape(obj_id, link_id,
-                                        #   textureUniqueId=texture_id) 
-                                          rgbaColor=obj_rgba)
-
-            # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
-            for _ in range(50):
-                self._p.stepSimulation()
-
-        # Record object initial height (for comparing with final height when checking if lifted). Note that obj_initial_height_list is a dict
-        for obj_id in self._obj_id_list:
-            pos, _ = self._p.getBasePositionAndOrientation(obj_id)
-            self._obj_initial_pos_list[obj_id] = pos
+        raise NotImplementedError
 
     def reset(self, task=None):
         """
@@ -214,6 +136,10 @@ class GraspEnv(BaseEnv, ABC):
                 frictionAnchor=1,
             )
 
+            # Change color
+            self._p.changeVisualShape(self._table_id, -1,
+                                    rgbaColor=[0.7, 0.7, 0.7, 1.0])
+
             # Reset object info
             self._obj_id_list = []
             self._obj_initial_pos_list = {}
@@ -230,7 +156,7 @@ class GraspEnv(BaseEnv, ABC):
         self.step_elapsed = 0
         
         # Reset safety of the trial
-        self.safe_trial = False
+        self.safe_trial = True
 
         return self._get_obs()
 
@@ -271,13 +197,13 @@ class GraspEnv(BaseEnv, ABC):
             reward = 0
         return self._get_obs(self.camera_params), reward, True, {}
 
-    def clear_obj(self):
+    def clear_obj(self, thres=0.03):
         height = []
         obj_to_be_removed = []
         for obj_id in self._obj_id_list:
             pos, _ = self._p.getBasePositionAndOrientation(obj_id)
             height += [pos[2]]
-            if pos[2] - self._obj_initial_pos_list[obj_id][2] > 0.03:
+            if pos[2] - self._obj_initial_pos_list[obj_id][2] > thres:
                 obj_to_be_removed += [obj_id]
 
         for obj_id in obj_to_be_removed:
@@ -299,7 +225,7 @@ class GraspEnv(BaseEnv, ABC):
         max_joint_vel=0.20,
         pos_gain=20,
         vel_gain=5,
-        collision_obj_id_list=None
+        collision_force_threshold=0,
     ):
 
         # Get trajectory
@@ -339,6 +265,7 @@ class GraspEnv(BaseEnv, ABC):
                                      num_steps=num_steps)
 
         # Run steps
+        collision = False
         num_steps = len(traj_pos)
         for step in range(num_steps):
 
@@ -376,10 +303,20 @@ class GraspEnv(BaseEnv, ABC):
             #     for obj_id in collision_obj_id_list:
             #         contact_info = self._get_finger_force(obj_id)
             #         if contact_info is not None:
-            #             print(contact_info[-2:])
+            #             print(sum(contact_info[:2]))
+            #             while 1:
+            #                 continue
+            if collision_force_threshold > 0:
+                fm = np.array(self._p.getJointState(self._panda_id, self._ee_joint_id)[2])
+                if np.any(fm[:3] > collision_force_threshold):
+                    collision = True
+                    # print(fm[:3])
+                    # while 1:
+                    #     continue
 
             # Step simulation, takes 1.5ms
             self._p.stepSimulation()
+        return collision
 
     def traj_tracking_vel(self,
                           target_pos,

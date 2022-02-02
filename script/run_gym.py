@@ -14,7 +14,7 @@ from shutil import copyfile
 from agent.agent_grasp_mv import AgentGraspMV
 
 # ENV
-from panda_gym.vec_env_grasp_mv import VecEnvGraspMV
+from panda_gym.vec_env_grasp_mv import VecEnvGraspMV, VecEnvGraspMVRandom
 from alano.train.vec_env import make_vec_envs
 from alano.utils.yaml import load_config
 
@@ -42,13 +42,19 @@ def main(config_file, config_dict):
 
     # Environment
     print("\n== Environment Information ==")
+    if CONFIG_ENV.ENV_NAME == 'GraspMultiView-v0':
+        vec_env_type = VecEnvGraspMV
+    elif CONFIG_ENV.ENV_NAME == 'GraspMultiViewRandom-v0':
+        vec_env_type = VecEnvGraspMVRandom
+    else:
+        raise NotImplementedError
     venv = make_vec_envs(
         env_name=CONFIG_ENV.ENV_NAME,
         seed=CONFIG_TRAINING.SEED,
         num_processes=CONFIG_TRAINING.NUM_CPUS,
         device=CONFIG_TRAINING.DEVICE,
         config_env=CONFIG_ENV,
-        vec_env_type=VecEnvGraspMV,
+        vec_env_type=vec_env_type,
         max_steps_train=CONFIG_ENV.MAX_TRAIN_STEPS,
         max_steps_eval=CONFIG_ENV.MAX_EVAL_STEPS,
         renders=CONFIG_ENV.RENDER,
@@ -57,12 +63,14 @@ def main(config_file, config_dict):
         use_rgb=CONFIG_ENV.USE_RGB,
         use_depth=CONFIG_ENV.USE_DEPTH,
     )
-    venv.reset()
+    # venv.reset()
 
     # Agent
     print("\n== Agent Information ==")
     if CONFIG_TRAINING.AGENT_NAME == 'AgentGraspMV':
         agent_class = AgentGraspMV
+    else:
+        raise NotImplementedError
     agent = agent_class(CONFIG_TRAINING, CONFIG_UPDATE, CONFIG_ARCH,
                         CONFIG_ENV)
     print('\nTotal parameters in actor: {}'.format(
@@ -72,8 +80,12 @@ def main(config_file, config_dict):
         CONFIG_TRAINING.DEVICE, agent.performance.device))
 
     # Learn
-    print("\n== Learning ==")
-    train_records, train_progress = agent.learn(venv)
+    if CONFIG_TRAINING.EVAL:
+        print("\n== Evaluating ==")
+        agent.evaluate(venv)
+    else:
+        print("\n== Learning ==")
+        train_records, train_progress = agent.learn(venv)
 
 
 if __name__ == "__main__":

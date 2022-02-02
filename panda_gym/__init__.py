@@ -4,3 +4,8 @@ gym.envs.register(  # no time limit imposed
     id='GraspMultiView-v0',
     entry_point='panda_gym.grasp_mv_env:GraspMultiViewEnv',
 )
+
+gym.envs.register(  # no time limit imposed
+    id='GraspMultiViewRandom-v0',
+    entry_point='panda_gym.grasp_mv_random_env:GraspMultiViewRandomEnv',
+)

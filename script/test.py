@@ -3,7 +3,6 @@ import os
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-import panda
 from panda.panda_env import PandaEnv, plot_frame_pb
 import pybullet as p
 
