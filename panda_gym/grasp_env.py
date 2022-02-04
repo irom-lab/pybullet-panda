@@ -6,6 +6,7 @@ from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
+from alano.geometry.camera import rgba2rgb
 
 
 class GraspEnv(BaseEnv, ABC):
@@ -105,7 +106,31 @@ class GraspEnv(BaseEnv, ABC):
         """
         Reset the task for the environment. Load object - task
         """
-        raise NotImplementedError
+        # Clean table
+        for obj_id in self._obj_id_list:
+            self._p.removeBody(obj_id)
+
+        # Reset obj info
+        self._obj_id_list = []
+        self._obj_initial_pos_list = {}
+
+        # Load urdf
+        obj_path = 'data/sample_mug/4.urdf'
+        obj_id = self._p.loadURDF(
+            obj_path,
+            basePosition=[0.5, 0.0, 0.3],
+            baseOrientation=[1,0,0,0])
+        self._obj_id_list += [obj_id]
+
+        # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
+        for _ in range(50):
+            self._p.stepSimulation()
+
+        # Record object initial height (for comparing with final height when checking if lifted). Note that obj_initial_height_list is a dict
+        for obj_id in self._obj_id_list:
+            pos, _ = self._p.getBasePositionAndOrientation(obj_id)
+            self._obj_initial_pos_list[obj_id] = pos
+
 
     def reset(self, task=None):
         """
@@ -158,7 +183,7 @@ class GraspEnv(BaseEnv, ABC):
         # Reset safety of the trial
         self.safe_trial = True
 
-        return self._get_obs()
+        return self._get_obs(self._camera_params)
 
     def step(self, action):
         """
@@ -172,7 +197,7 @@ class GraspEnv(BaseEnv, ABC):
         initial_ee_pos_before_img = np.array([0.3, -0.5, 0.25])
         initial_ee_orn = np.array([1.0, 0.0, 0.0, 0.0])  # straight down
         self.reset_arm_joints_ik(initial_ee_pos_before_img, initial_ee_orn)
-        self.grasp(targetVel=0.10)  # open gripper
+        self.grasp(target_vel=0.10)  # open gripper
 
         # Execute, reset ik on top of object, reach down, grasp, lift, check success
         ee_pos = action
@@ -182,12 +207,12 @@ class GraspEnv(BaseEnv, ABC):
         for _ in range(3):
             self.reset_arm_joints_ik(ee_pos_before, ee_orn)
             self._p.stepSimulation()
-        self.move(ee_pos, absolute_global_quat=ee_orn, numSteps=300)
-        self.grasp(targetVel=-0.10)  # always close gripper
+        self.move(ee_pos, absolute_global_quat=ee_orn, num_steps=300)
+        self.grasp(target_vel=-0.10)  # always close gripper
         self.move(ee_pos, absolute_global_quat=ee_orn,
-                  numSteps=100)  # keep pose until gripper closes
+                  num_steps=100)  # keep pose until gripper closes
         self.move(ee_pos_after, absolute_global_quat=ee_orn,
-                  numSteps=150)  # lift
+                  num_steps=150)  # lift
 
         # Check if all objects removed
         self.clear_obj()
@@ -195,7 +220,7 @@ class GraspEnv(BaseEnv, ABC):
             reward = 1
         else:
             reward = 0
-        return self._get_obs(self.camera_params), reward, True, {}
+        return self._get_obs(self._camera_params), reward, True, {}
 
     def clear_obj(self, thres=0.03):
         height = []
@@ -210,6 +235,43 @@ class GraspEnv(BaseEnv, ABC):
             self._p.removeBody(obj_id)
             self._obj_id_list.remove(obj_id)
         return len(obj_to_be_removed)
+
+    def _get_obs(self, camera_params):
+        far = 1000.0
+        near = 0.01
+        camera_pos = camera_params['pos']
+        rot_matrix = quat2rot(camera_params['quat'])
+        init_camera_vector = (0, 0, 1)  # z-axis
+        init_up_vector = (1, 0, 0)  # x-axis
+        camera_vector = rot_matrix.dot(init_camera_vector)
+        up_vector = rot_matrix.dot(init_up_vector)
+
+        view_matrix = self._p.computeViewMatrix(
+            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
+        projection_matrix = self._p.computeProjectionMatrixFOV(
+            fov=camera_params['camera_fov'],
+            aspect=camera_params['aspect'],
+            nearVal=near,
+            farVal=far)
+
+        _, _, rgb, depth, _ = self._p.getCameraImage(
+            camera_params['img_w'],
+            camera_params['img_h'],
+            view_matrix,
+            projection_matrix,
+            flags=self._p.ER_NO_SEGMENTATION_MASK)
+        out = []
+        if self.use_depth:
+            depth = far * near / (far - (far - near) * depth)
+            depth = (camera_params['max_depth'] - depth) / camera_params['max_depth']
+            depth = depth.clip(min=0., max=1.)
+            depth = np.uint8(depth * 255)
+            out += [depth[np.newaxis]]
+        if self.use_rgb:
+            rgb = rgba2rgb(rgb).transpose(2, 0, 1)
+            out += [rgb]
+        out = np.concatenate(out)
+        return out  # uint8
 
     def move(
         self,
@@ -299,20 +361,10 @@ class GraspEnv(BaseEnv, ABC):
                                           maxVelocity=0.10)
 
             # Check contact
-            # if collision_obj_id_list is not None:
-            #     for obj_id in collision_obj_id_list:
-            #         contact_info = self._get_finger_force(obj_id)
-            #         if contact_info is not None:
-            #             print(sum(contact_info[:2]))
-            #             while 1:
-            #                 continue
             if collision_force_threshold > 0:
                 fm = np.array(self._p.getJointState(self._panda_id, self._ee_joint_id)[2])
                 if np.any(fm[:3] > collision_force_threshold):
                     collision = True
-                    # print(fm[:3])
-                    # while 1:
-                    #     continue
 
             # Step simulation, takes 1.5ms
             self._p.stepSimulation()
