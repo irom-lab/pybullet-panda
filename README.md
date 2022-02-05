@@ -1,10 +1,8 @@
 # Custom Franka Panda environment in PyBullet
 
-```move_pos``` in panda_env.py implements a resolved-rate velocity controller of the arm. A wide variety of orientation input (Euler/Quaternion/Azimuthal) is supported. utils_geom.py specifies the Euler angle convention used.
+Some sample environments are provided in ```panda_gym``` that follow the OpenAI Gym environment style.  In ```script```, ```test.py``` provides a minimal working example, and ```run_gym.py``` provides an example of running vectorized environments using [Stable Baselines 3](https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html). 
 
-There are three different fingers available:
-1. the original one from Franka
-2. a longer one (preferred for grasping, design from [Doug Morrison](https://dougsm.com/))
-3. a wider one (for grasping cups and pouring liquid)
+### Other functionality
 
-train_grasp.py implements simple 2D grasp training using affordance map.
+1. Differential IK controller that supports a wide variety of orientation input (Euler/Quaternion/Azimuthal)
+2. Different gripper finger models: (1) the original one from Franka; (2) a longer one (preferred for grasping, design from [Doug Morrison](https://dougsm.com/)); (3) a wider one (for grasping cups and pouring liquid).
