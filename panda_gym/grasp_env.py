@@ -77,7 +77,7 @@ class GraspEnv(BaseEnv, ABC):
         Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
         """
         return [
-            0, -0.255, 0, -2.437, 0, 2.181, 0.779, 0, -np.pi / 4,
+            0, -0.255, 0, -2.437, 0, 2.181, 0.785, 0, 0,
             self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
         ]
 
@@ -85,7 +85,7 @@ class GraspEnv(BaseEnv, ABC):
     def up_joint_angles(self):
         """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
         """
-        return [0, 1.643, 0, 1.167, 0, 0.476, 0.779, 0, -np.pi / 4,
+        return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
             self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
         ]
 
@@ -200,9 +200,9 @@ class GraspEnv(BaseEnv, ABC):
         self.grasp(target_vel=0.10)  # open gripper
 
         # Execute, reset ik on top of object, reach down, grasp, lift, check success
-        ee_pos = action
-        ee_pos_before = action + np.array([0, 0, 0.10])
-        ee_pos_after = action + np.array([0, 0, 0.05])
+        ee_pos = action[:3]
+        ee_pos_before = ee_pos + np.array([0, 0, 0.10])
+        ee_pos_after = ee_pos + np.array([0, 0, 0.05])
         ee_orn = quatMult(euler2quat([action[-1], 0., 0.]), initial_ee_orn)
         for _ in range(3):
             self.reset_arm_joints_ik(ee_pos_before, ee_orn)
@@ -384,8 +384,7 @@ class GraspEnv(BaseEnv, ABC):
                 (quat2rot(ee_quat).T)))  # in spatial frame
 
         joint_poses = list(
-            np.hstack((self._get_arm_joints(), np.array([0, 0,
-                                                         0]))))  # add fingers
+            np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
         ee_state = self._p.getLinkState(self._panda_id,
                                         self._ee_link_id,
                                         computeLinkVelocity=1,

@@ -212,13 +212,18 @@
     <axis xyz="0 0 0"/>
     <dynamics damping="100" />
   </joint>
-    <joint name="panda_hand_joint" type="revolute">
+  <joint name="panda_hand_joint" type="fixed">
+    <parent link="panda_link8"/>
+    <child link="panda_hand"/>
+    <origin rpy="0 0 -0.785" xyz="0 0 0"/>
+  </joint>
+  <!-- <joint name="panda_hand_joint" type="revolute">
     <parent link="panda_link8"/>
     <child link="panda_hand"/>
     <origin rpy="0 0 0" xyz="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit effort="12" lower="-0.78" upper="-0.78" velocity="0.01"/>
-  </joint>
+  </joint> -->
   <link name="panda_hand">
     <visual>
       <geometry>

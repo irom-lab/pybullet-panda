@@ -23,7 +23,7 @@ class BaseEnv(gym.Env, ABC):
                  max_steps_train=100,
                  max_steps_eval=100,
                  done_type='fail',
-                 finger_type='long'):
+                 finger_type='drake'):
         """
         Args:
             task (str, optional): the name of the task. Defaults to None.
@@ -63,6 +63,7 @@ class BaseEnv(gym.Env, ABC):
                                                        img_w))
 
         # Panda config
+        self._panda_use_inertia_from_file = False
         if finger_type is None:
             _finger_name = 'panda_arm_finger_orig'
         elif finger_type == 'long':
@@ -71,6 +72,9 @@ class BaseEnv(gym.Env, ABC):
             _finger_name = 'panda_arm_finger_wide_curved'
         elif finger_type == 'wide_flat':
             _finger_name = 'panda_arm_finger_wide_flat'
+        elif finger_type == 'drake':
+            _finger_name = 'panda_arm_hand_drake'
+            self._panda_use_inertia_from_file = True
         else:
             raise NotImplementedError
         self._panda_urdf_path = f'data/franka/{_finger_name}.urdf'
@@ -222,13 +226,21 @@ class BaseEnv(gym.Env, ABC):
         the 1st time, or in reset_task() if loading robot for the 2nd time.
         """
         if self._panda_id < 0:
+            if not self._panda_use_inertia_from_file:
+                _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
+                       and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT 
+                       and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL)
+            else:
+                _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
+                            and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT  
+                            and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
+                            and self._p.URDF_USE_INERTIA_FROM_FILE)
             self._panda_id = self._p.loadURDF(
                 self._panda_urdf_path,
                 basePosition=[0, 0, 0],
                 baseOrientation=[0, 0, 0, 1],
                 useFixedBase=1,
-                flags=(self._p.URDF_USE_SELF_COLLISION
-                       and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT))
+                flags=_panda_urdf_flags)
 
             # Set friction coefficient for fingers
             self._p.changeDynamics(
@@ -285,7 +297,7 @@ class BaseEnv(gym.Env, ABC):
         """
         if len(angles) < self._num_joint:  # 7
             angles += [
-                0, -np.pi / 4, self._finger_open_pos, 0.0,
+                0, 0, self._finger_open_pos, 0.0,
                 self._finger_open_pos, 0.0
             ]
         for i in range(self._num_joint):  # 13
@@ -317,7 +329,7 @@ class BaseEnv(gym.Env, ABC):
         else:
             finger_pos = self._finger_open_pos
         joint_poses = joint_poses[:7] + [
-            0, -np.pi / 4, finger_pos, 0.00, finger_pos, 0.00
+            0, 0, finger_pos, 0.00, finger_pos, 0.00
         ]
         self.reset_robot_joints(joint_poses)
 
