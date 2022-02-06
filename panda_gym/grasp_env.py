@@ -115,11 +115,11 @@ class GraspEnv(BaseEnv, ABC):
         self._obj_initial_pos_list = {}
 
         # Load urdf
-        obj_path = 'data/sample_mug/4.urdf'
+        obj_path = 'data/sample/mug/3.urdf'
         obj_id = self._p.loadURDF(
             obj_path,
-            basePosition=[0.5, 0.0, 0.3],
-            baseOrientation=[1,0,0,0])
+            basePosition=[0.5, 0.0, 0.15],
+            baseOrientation=[0, 0, 0, 1])
         self._obj_id_list += [obj_id]
 
         # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
