@@ -23,7 +23,8 @@ class BaseEnv(gym.Env, ABC):
                  max_steps_train=100,
                  max_steps_eval=100,
                  done_type='fail',
-                 finger_type='drake'):
+                #  finger_type='drake'
+                 ):
         """
         Args:
             task (str, optional): the name of the task. Defaults to None.
@@ -64,20 +65,20 @@ class BaseEnv(gym.Env, ABC):
 
         # Panda config
         self._panda_use_inertia_from_file = False
-        if finger_type is None:
-            _finger_name = 'panda_arm_finger_orig'
-        elif finger_type == 'long':
-            _finger_name = 'panda_arm_finger_long'
-        elif finger_type == 'wide_curved':
-            _finger_name = 'panda_arm_finger_wide_curved'
-        elif finger_type == 'wide_flat':
-            _finger_name = 'panda_arm_finger_wide_flat'
-        elif finger_type == 'drake':
-            _finger_name = 'panda_arm_hand_drake'
-            self._panda_use_inertia_from_file = True
-        else:
-            raise NotImplementedError
-        self._panda_urdf_path = f'data/franka/{_finger_name}.urdf'
+        # if finger_type is None:
+        #     _finger_name = 'panda_arm_finger_orig'
+        # elif finger_type == 'long':
+        #     _finger_name = 'panda_arm_finger_long'
+        # elif finger_type == 'wide_curved':
+        #     _finger_name = 'panda_arm_finger_wide_curved'
+        # elif finger_type == 'wide_flat':
+        #     _finger_name = 'panda_arm_finger_wide_flat'
+        # elif finger_type == 'drake':
+        #     _finger_name = 'panda_arm_drake'
+        #     self._panda_use_inertia_from_file = True
+        # else:
+        #     raise NotImplementedError
+        self._panda_urdf_path = f'data/franka/panda_arm.urdf'
         self._num_joint = 13
         self._num_joint_arm = 7  # Number of joints in arm (not counting hand)
         self._ee_joint_id = 7   # fixed virtual joint
