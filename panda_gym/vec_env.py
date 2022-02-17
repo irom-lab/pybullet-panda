@@ -3,9 +3,9 @@ import torch
 from alano.train.vec_env import VecEnvBase
 
 
-class VecEnvGraspMV(VecEnvBase):
+class VecEnvPanda(VecEnvBase):
     def __init__(self, venv, device, config_env):
-        super(VecEnvGraspMV, self).__init__(venv, device, config_env)
+        super(VecEnvPanda, self).__init__(venv, device, config_env)
 
         self.use_append = config_env.USE_APPEND
 
@@ -20,7 +20,15 @@ class VecEnvGraspMV(VecEnvBase):
             return append_all.to(self.device)
         else:
             return None
-        
-class VecEnvGraspMVRandom(VecEnvGraspMV):
+
+class VecEnvGraspMV(VecEnvPanda):
+    def __init__(self, venv, device, config_env):
+        super(VecEnvGraspMV, self).__init__(venv, device, config_env)
+
+class VecEnvGraspMVRandom(VecEnvPanda):
     def __init__(self, venv, device, config_env):
         super(VecEnvGraspMVRandom, self).__init__(venv, device, config_env)
+        
+class VecEnvPush(VecEnvPanda):
+    def __init__(self, venv, device, config_env):
+        super(VecEnvPush, self).__init__(venv, device, config_env)
