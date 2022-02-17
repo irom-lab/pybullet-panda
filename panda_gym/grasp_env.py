@@ -6,7 +6,6 @@ from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
-from alano.geometry.camera import rgba2rgb
 
 
 class GraspEnv(BaseEnv, ABC):
@@ -237,41 +236,7 @@ class GraspEnv(BaseEnv, ABC):
         return len(obj_to_be_removed)
 
     def _get_obs(self, camera_params):
-        far = 1000.0
-        near = 0.01
-        camera_pos = camera_params['pos']
-        rot_matrix = quat2rot(camera_params['quat'])
-        init_camera_vector = (0, 0, 1)  # z-axis
-        init_up_vector = (1, 0, 0)  # x-axis
-        camera_vector = rot_matrix.dot(init_camera_vector)
-        up_vector = rot_matrix.dot(init_up_vector)
-
-        view_matrix = self._p.computeViewMatrix(
-            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
-        projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_params['camera_fov'],
-            aspect=camera_params['aspect'],
-            nearVal=near,
-            farVal=far)
-
-        _, _, rgb, depth, _ = self._p.getCameraImage(
-            camera_params['img_w'],
-            camera_params['img_h'],
-            view_matrix,
-            projection_matrix,
-            flags=self._p.ER_NO_SEGMENTATION_MASK)
-        out = []
-        if self.use_depth:
-            depth = far * near / (far - (far - near) * depth)
-            depth = (camera_params['max_depth'] - depth) / camera_params['max_depth']
-            depth = depth.clip(min=0., max=1.)
-            depth = np.uint8(depth * 255)
-            out += [depth[np.newaxis]]
-        if self.use_rgb:
-            rgb = rgba2rgb(rgb).transpose(2, 0, 1)
-            out += [rgb]
-        out = np.concatenate(out)
-        return out  # uint8
+        return self.get_overhead_obs(camera_params)
 
     def move(
         self,

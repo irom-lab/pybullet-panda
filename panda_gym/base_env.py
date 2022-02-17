@@ -6,6 +6,8 @@ import pybullet as p
 from pybullet_utils import bullet_client as bc
 
 from alano.utils.save_init_args import save__init__args
+from alano.geometry.camera import rgba2rgb
+from alano.geometry.transform import quat2rot, euler2quat
 
 
 def normalize_action(action, lower, upper):
@@ -353,11 +355,101 @@ class BaseEnv(gym.Env, ABC):
             else:
                 self._finger_cur_vel = 0.05
 
-    ################# Get info #################
+    ################# Obs #################
 
     @abstractmethod
     def _get_obs(self):
         raise NotImplementedError
+
+    def get_overhead_obs(self, camera_params):
+        far = 1000.0
+        near = 0.01
+        camera_pos = camera_params['pos']
+        rot_matrix = quat2rot(camera_params['quat'])
+        init_camera_vector = (0, 0, 1)  # z-axis
+        init_up_vector = (1, 0, 0)  # x-axis
+        camera_vector = rot_matrix.dot(init_camera_vector)
+        up_vector = rot_matrix.dot(init_up_vector)
+
+        view_matrix = self._p.computeViewMatrix(
+            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
+        projection_matrix = self._p.computeProjectionMatrixFOV(
+            fov=camera_params['camera_fov'],
+            aspect=camera_params['aspect'],
+            nearVal=near,
+            farVal=far)
+
+        _, _, rgb, depth, _ = self._p.getCameraImage(
+            camera_params['img_w'],
+            camera_params['img_h'],
+            view_matrix,
+            projection_matrix,
+            flags=self._p.ER_NO_SEGMENTATION_MASK)
+        out = []
+        if self.use_depth:
+            depth = far * near / (far - (far - near) * depth)
+            depth = (camera_params['max_depth'] - depth) / camera_params['max_depth']
+            depth = depth.clip(min=0., max=1.)
+            depth = np.uint8(depth * 255)
+            out += [depth[np.newaxis]]
+        if self.use_rgb:
+            rgb = rgba2rgb(rgb).transpose(2, 0, 1)
+            out += [rgb]
+        out = np.concatenate(out)
+        return out  # uint8
+
+    def get_wrist_obs(self):    # todo: use dict for params
+        """Wrist camera image
+        """
+        ee_pos, ee_quat = self._get_ee()
+        rot_matrix = quat2rot(ee_quat)
+        camera_pos = ee_pos + rot_matrix.dot(self.camera_wrist_offset)
+        # plot_frame_pb(camera_pos, ee_orn)
+
+        # Initial vectors
+        init_camera_vector = (0, 0, 1)  # z-axis
+        init_up_vector = (1, 0, 0)  # x-axis
+
+        # Rotated vectors
+        camera_vector = rot_matrix.dot(init_camera_vector)
+        up_vector = rot_matrix.dot(init_up_vector)
+        view_matrix = self._p.computeViewMatrix(
+            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
+
+        # Get Image
+        far = 1000.0
+        near = 0.01
+        projection_matrix = self._p.computeProjectionMatrixFOV(
+            fov=self.camera_fov,
+            aspect=self.camera_aspect,
+            nearVal=near,
+            farVal=far)
+        _, _, rgb, depth, _ = self._p.getCameraImage(
+            self.img_w,
+            self.img_h,
+            view_matrix,
+            projection_matrix,
+            flags=self._p.ER_NO_SEGMENTATION_MASK)
+        out = []
+        if self.use_depth:
+            depth = far * near / (far - (far - near) * depth)
+            depth = (self.camera_max_depth - depth) / self.camera_max_depth
+            depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #!
+            depth = depth.clip(min=0., max=1.)
+            depth = np.uint8(depth * 255)
+            out += [depth[np.newaxis]]
+        if self.use_rgb:
+            rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
+            rgb_mask = np.uint8(np.random.choice(np.arange(0,2), size=rgb.shape[1:], replace=True, p=[0.95, 0.05]))
+            rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #!
+            rgb_mask *= rgb_random
+            rgb = np.where(rgb_mask > 0, rgb_mask, rgb)
+            out += [rgb]
+        out = np.concatenate(out)
+
+        return out
+
+    ################# Get info #################
 
     def _get_ee(self):
         info = self._p.getLinkState(self._panda_id, self._ee_link_id)
