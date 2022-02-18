@@ -125,6 +125,14 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
+    @property
+    def up_joint_angles(self):
+        """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
+        """
+        return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
+            self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
+        ]
+
     @abstractmethod
     def step(self):
         """
