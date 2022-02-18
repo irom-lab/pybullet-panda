@@ -10,17 +10,12 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         self,
         task=None,
         renders=False,
-        img_h=128,
-        img_w=128,
         use_rgb=False,
         use_depth=True,
-        max_steps_train=100,
-        max_steps_eval=100,
-        done_type='fail',
         #
         mu=0.5,
         sigma=0.03,
-        # camera_params=None,
+        camera_params=None,
     ):
         """
         Args:
@@ -41,16 +36,11 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         super(GraspMultiViewEnv, self).__init__(
             task=task,
             renders=renders,
-            img_h=img_h,
-            img_w=img_w,
             use_rgb=use_rgb,
             use_depth=use_depth,
-            max_steps_train=max_steps_train,
-            max_steps_eval=max_steps_eval,
-            done_type=done_type,
             mu=mu,
             sigma=sigma,
-            camera_params=None,  #! use wrist view
+            camera_params=camera_params,  #TODO
         )
 
         # Wrist view camera

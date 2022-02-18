@@ -18,14 +18,10 @@ class BaseEnv(gym.Env, ABC):
     def __init__(self,
                  task=None,
                  renders=False,
-                 img_h=128,
-                 img_w=128,
                  use_rgb=False,
                  use_depth=True,
-                 max_steps_train=100,
-                 max_steps_eval=100,
-                 done_type='fail',
                 #  finger_type='drake'
+                 camera_params=None,
                  ):
         """
         Args:
@@ -36,12 +32,6 @@ class BaseEnv(gym.Env, ABC):
                 True.
             render (bool, optional): whether to render the environment.
                 Defaults to False.
-            max_steps_train (int, optional): the maximum number of steps to
-                train. Defaults to 100.
-            max_steps_eval (int, optional): the maximum number of steps to
-                evaluate. Defaults to 100.
-            done_type (str, optional): the type of the done. Defaults to
-                'fail'.
         """
         super(BaseEnv, self).__init__()
         save__init__args(locals())  # save all class variables
@@ -51,9 +41,6 @@ class BaseEnv(gym.Env, ABC):
         self._physics_client_id = -1  # PyBullet
         self._panda_id = -1
 
-        # Flag for train/eval
-        self.set_train_mode()
-
         # Set up observation and action space for Gym
         _num_img_channel = 0
         if use_rgb:
@@ -62,8 +49,8 @@ class BaseEnv(gym.Env, ABC):
             _num_img_channel += 1  # D only
         self.observation_space = gym.spaces.Box(low=np.float32(0.),
                                                 high=np.float32(1.),
-                                                shape=(_num_img_channel, img_h,
-                                                       img_w))
+                                                shape=(_num_img_channel, camera_params['img_h'],
+                                                    camera_params['img_w']))
 
         # Panda config
         self._panda_use_inertia_from_file = False
@@ -106,7 +93,8 @@ class BaseEnv(gym.Env, ABC):
                                         2.5])  # actually 2.175 and 2.61
         self._finger_open_pos = 0.04
         self._finger_close_pos = 0.0
-        self._finger_cur_pos = 0.04  # current
+        # Initialize current finger pos/vel
+        self._finger_cur_pos = 0.04
         self._finger_cur_vel = 0.05
 
     @property
@@ -174,20 +162,6 @@ class BaseEnv(gym.Env, ABC):
     def state(self):
         return
 
-    def set_train_mode(self):
-        """
-        Set the environment to train mode.
-        """
-        self.flag_train = True
-        self.max_steps = self.max_steps_train
-
-    def set_eval_mode(self):
-        """
-        Set the environment to eval mode.
-        """
-        self.flag_train = False
-        self.max_steps = self.max_steps_eval
-
     def seed(self, seed=0):
         """
         Set the seed of the environment. Should be called after action_sapce is
@@ -240,18 +214,21 @@ class BaseEnv(gym.Env, ABC):
             if not self._panda_use_inertia_from_file:
                 _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
                        and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT 
-                       and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL)
+                       and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
+                       )
             else:
                 _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
                             and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT  
                             and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
-                            and self._p.URDF_USE_INERTIA_FROM_FILE)
+                            and self._p.URDF_USE_INERTIA_FROM_FILE
+                            )
             self._panda_id = self._p.loadURDF(
                 self._panda_urdf_path,
                 basePosition=[0, 0, 0],
                 baseOrientation=[0, 0, 0, 1],
                 useFixedBase=1,
-                flags=_panda_urdf_flags)
+                flags=_panda_urdf_flags
+                )
 
             # Set friction coefficient for fingers
             self._p.changeDynamics(
@@ -297,7 +274,7 @@ class BaseEnv(gym.Env, ABC):
         # Reset all joint angles
         self.reset_robot_joints(self.init_joint_angles)
 
-        # Kep gripper open
+        # Keep gripper open
         self.grasp(target_vel=0.10)
 
     def reset_robot_joints(self, angles):
@@ -333,8 +310,9 @@ class BaseEnv(gym.Env, ABC):
                 upperLimits=self._joint_upper_limit,
                 jointRanges=self._joint_range,
                 restPoses=self._joint_rest_pose,
-                residualThreshold=1e-4))
-        #    , maxNumIterations=1e5))
+                residualThreshold=1e-4,
+                # maxNumIterations=1e5
+                ))
         if gripper_closed:
             finger_pos = self._finger_close_pos
         else:

@@ -55,13 +55,10 @@ def main(config_file, config_dict):
         device=CONFIG_TRAINING.DEVICE,
         config_env=CONFIG_ENV,
         vec_env_type=vec_env_type,
-        max_steps_train=CONFIG_ENV.MAX_TRAIN_STEPS,
-        max_steps_eval=CONFIG_ENV.MAX_EVAL_STEPS,
         renders=CONFIG_ENV.RENDER,
-        img_h=CONFIG_ENV.IMG_H,
-        img_w=CONFIG_ENV.IMG_W,
         use_rgb=CONFIG_ENV.USE_RGB,
         use_depth=CONFIG_ENV.USE_DEPTH,
+        camera_params=CONFIG_ENV.CAMERA,
     )
     # venv.reset()
 
