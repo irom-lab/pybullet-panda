@@ -15,7 +15,7 @@ from agent.agent_grasp_mv import AgentGraspMV
 from agent.agent_push import AgentPush
 
 # ENV
-from panda_gym.vec_env import VecEnvGraspMV, VecEnvGraspMVRandom, VecEnvPush
+from panda_gym.vec_env.vec_env import VecEnvGraspMV, VecEnvGraspMVRandom, VecEnvPush
 from alano.train.vec_env import make_vec_envs
 from alano.utils.yaml import load_config
 
