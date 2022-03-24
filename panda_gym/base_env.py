@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import pathlib
 import numpy as np
 import torch
 import gym
@@ -20,16 +21,12 @@ class BaseEnv(gym.Env, ABC):
                  renders=False,
                  use_rgb=False,
                  use_depth=True,
-                #  finger_type='drake'
                  camera_params=None,
+                #  finger_type='drake'
                  ):
         """
         Args:
             task (str, optional): the name of the task. Defaults to None.
-            img_h (int, optional): the height of the image. Defaults to 128.
-            img_w (int, optional): the width of the image. Defaults to 128.
-            use_rgb (bool, optional): whether to use RGB image. Defaults to
-                True.
             render (bool, optional): whether to render the environment.
                 Defaults to False.
         """
@@ -51,9 +48,9 @@ class BaseEnv(gym.Env, ABC):
                                                 high=np.float32(1.),
                                                 shape=(_num_img_channel, camera_params['img_h'],
                                                     camera_params['img_w']))
+        self._camera_params = camera_params
 
         # Panda config
-        self._panda_use_inertia_from_file = False
         # if finger_type is None:
         #     _finger_name = 'panda_arm_finger_orig'
         # elif finger_type == 'long':
@@ -67,7 +64,7 @@ class BaseEnv(gym.Env, ABC):
         #     self._panda_use_inertia_from_file = True
         # else:
         #     raise NotImplementedError
-        self._panda_urdf_path = f'data/franka/panda_arm.urdf'
+        self._panda_urdf_path = str(pathlib.Path(__file__).parent.parent) + '/data/franka/panda_arm.urdf'
         self._num_joint = 13
         self._num_joint_arm = 7  # Number of joints in arm (not counting hand)
         self._ee_joint_id = 7   # fixed virtual joint
@@ -211,23 +208,15 @@ class BaseEnv(gym.Env, ABC):
         the 1st time, or in reset_task() if loading robot for the 2nd time.
         """
         if self._panda_id < 0:
-            if not self._panda_use_inertia_from_file:
-                _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
-                       and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT 
-                       and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
-                       )
-            else:
-                _panda_urdf_flags = (self._p.URDF_USE_SELF_COLLISION
-                            and self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT  
-                            and self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
-                            and self._p.URDF_USE_INERTIA_FROM_FILE
-                            )
+            # self._p.URDF_USE_SELF_COLLISION 
+            # | self._p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT 
+            # | self._p.URDF_USE_MATERIAL_COLORS_FROM_MTL
             self._panda_id = self._p.loadURDF(
                 self._panda_urdf_path,
                 basePosition=[0, 0, 0],
                 baseOrientation=[0, 0, 0, 1],
                 useFixedBase=1,
-                flags=_panda_urdf_flags
+                flags=self._p.URDF_USE_INERTIA_FROM_FILE
                 )
 
             # Set friction coefficient for fingers
@@ -333,13 +322,14 @@ class BaseEnv(gym.Env, ABC):
         """
         Change gripper velocity direction
         """
-        if target_vel > 1e-2 or target_vel < -1e-2:
-            self._finger_cur_vel = target_vel
-        else:
-            if self._finger_cur_vel > 0.0:
-                self._finger_cur_vel = -0.05
-            else:
-                self._finger_cur_vel = 0.05
+        self._finger_cur_vel = target_vel
+        # if target_vel > 1e-2 or target_vel < -1e-2:
+        #     self._finger_cur_vel = target_vel
+        # else:
+        #     if self._finger_cur_vel > 0.0:
+        #         self._finger_cur_vel = -0.05
+        #     else:
+        #         self._finger_cur_vel = 0.05
 
     ################# Obs #################
 
@@ -351,7 +341,7 @@ class BaseEnv(gym.Env, ABC):
         far = 1000.0
         near = 0.01
         camera_pos = camera_params['pos']
-        rot_matrix = quat2rot(camera_params['quat'])
+        rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_params['euler']))
         init_camera_vector = (0, 0, 1)  # z-axis
         init_up_vector = (1, 0, 0)  # x-axis
         camera_vector = rot_matrix.dot(init_camera_vector)
@@ -360,7 +350,7 @@ class BaseEnv(gym.Env, ABC):
         view_matrix = self._p.computeViewMatrix(
             camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_params['camera_fov'],
+            fov=camera_params['fov'],
             aspect=camera_params['aspect'],
             nearVal=near,
             farVal=far)
@@ -420,14 +410,14 @@ class BaseEnv(gym.Env, ABC):
         if self.use_depth:
             depth = far * near / (far - (far - near) * depth)
             depth = (self.camera_max_depth - depth) / self.camera_max_depth
-            depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #!
+            depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #todo: use self.rng
             depth = depth.clip(min=0., max=1.)
             depth = np.uint8(depth * 255)
             out += [depth[np.newaxis]]
         if self.use_rgb:
             rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
             rgb_mask = np.uint8(np.random.choice(np.arange(0,2), size=rgb.shape[1:], replace=True, p=[0.95, 0.05]))
-            rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #!
+            rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #todo: use self.rng
             rgb_mask *= rgb_random
             rgb = np.where(rgb_mask > 0, rgb_mask, rgb)
             out += [rgb]
@@ -523,4 +513,3 @@ class BaseEnv(gym.Env, ABC):
         left_normal_mag = sum([i[9] for i in left_contacts])
         right_normal_mag = sum([i[9] for i in right_contacts])
         return left_normal_mag > min_force and right_normal_mag > min_force
-
