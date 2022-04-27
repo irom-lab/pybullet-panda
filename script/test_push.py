@@ -7,12 +7,12 @@ import time
 import pickle
 
 # Configure camera
-camera_height = 0.60
+camera_height = 0.40
 camera_params = {}
-camera_params['pos'] = np.array([0.5, 0, camera_height])
-camera_params['euler'] = [0, -np.pi, np.pi/2] # extrinsic
-# camera_params['quat'] = euler2quat([np.pi/2, -4*np.pi/5, 0])  # intrinsic
-# camera_params['quat'] = np.array([1.0, 0.0, 0.0, 0.0])  # pointing downwards
+# camera_params['pos'] = np.array([0.7, 0, camera_height])
+camera_params['pos'] = np.array([1.0, 0, camera_height])
+# camera_params['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
+camera_params['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
 camera_params['img_w'] = 64
 camera_params['img_h'] = 64
 camera_params['aspect'] = 1
@@ -20,19 +20,19 @@ camera_params['fov'] = 70    # vertical fov in degrees
 camera_params['max_depth'] = camera_height
 
 # Dataset
-dataset = 'data/private/box/box_100_0.pkl'
+dataset = 'data/private/box/slim_100_0.pkl'
 print("Load tasks from", dataset)
 with open(dataset, 'rb') as f:
     task_all = pickle.load(f)
 
 # Initialize environment
-env = PushEnv(task=task_all[0],
+env = PushEnv(task=task_all[25],
             renders=True,
             use_rgb=True,
             use_depth=True,
             #
-            mu=0.5,
-            sigma=0.03,
+            mu=0.3,
+            sigma=0.01,
             camera_params=camera_params)
 env.reset()
 # self.reset_arm_joints_ik([0.39, 0.0, 0.17], orn=euler2quat([np.pi,np.pi-np.pi/8,0]))

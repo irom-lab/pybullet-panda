@@ -3,7 +3,7 @@ import numpy as np
 import pybullet_data
 
 from panda_gym.base_env import BaseEnv, normalize_action
-from alano.geometry.transform import quat2euler
+from alano.geometry.transform import quat2euler, euler2quat
 from alano.bullet.kinematics import full_jacob_pb
 
 
@@ -15,8 +15,8 @@ class PushEnv(BaseEnv, ABC):
         use_rgb=False,
         use_depth=True,
         #
-        mu=0.5,
-        sigma=0.03,
+        mu=0.3,
+        sigma=0.01,
         camera_params=None,
     ):
         """
@@ -46,7 +46,9 @@ class PushEnv(BaseEnv, ABC):
         self.action_low = np.array([-0.05, -0.2, -np.pi/6]) # 0.1
         self.action_high = np.array([0.2, 0.2, np.pi/6]) # 0.1
         self._finger_open_pos = 0.0 #! 0.01
-        self.target_pos = np.array([0.70,0.15]) # 0.
+
+        # Max yaw for clipping reward
+        self.max_yaw = np.pi/2
 
     @property
     def action_dim(self):
@@ -55,15 +57,15 @@ class PushEnv(BaseEnv, ABC):
         """
         return 3
 
-    @property
-    def init_joint_angles(self):
-        """
-        Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
-        """
-        return [
-            0, 0.277, 0, -2.813, 0, 3.483, 0.785, 0, 0,
-            self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
-        ]
+    # @property
+    # def init_joint_angles(self):
+    #     """
+    #     Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
+    #     """
+    #     return [
+    #         0, 0.277, 0, -2.813, 0, 3.483, 0.785, 0, 0,
+    #         self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
+    #     ]
 
     def report(self):
         """
@@ -89,6 +91,9 @@ class PushEnv(BaseEnv, ABC):
         self._obj_id_list = []
         self._obj_initial_pos_list = {}
 
+        # Reset robot
+        # self.reset_arm_joints_ik([0.40, task['ee_y'], 0.18], euler2quat([0, 5*np.pi/6, 0]), gripper_closed=True)
+
         # Load urdf
         box_collision_id = self._p.createCollisionShape(
             self._p.GEOM_BOX, halfExtents=task['obj_half_dim']
@@ -107,6 +112,9 @@ class PushEnv(BaseEnv, ABC):
         )
         self._obj_id_list += [obj_id]
 
+        # Set target - account for COM offset
+        self.target_pos = np.array([0.70, task['obj_com_offset'][1]])
+
         # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
         for _ in range(50):
             # Send velocity commands to joints
@@ -123,9 +131,10 @@ class PushEnv(BaseEnv, ABC):
 
         # Record object initial pos
         for obj_id in self._obj_id_list:
-            pos, _ = self._p.getBasePositionAndOrientation(obj_id)
+            pos, _ = self._p.getBasePositionAndOrientation(obj_id)  # this returns COM, not geometric center!
             self._obj_initial_pos_list[obj_id] = pos
         self.initial_dist = np.linalg.norm(pos[:2] - self.target_pos)
+
 
     def reset(self, task=None):
         """
@@ -135,7 +144,7 @@ class PushEnv(BaseEnv, ABC):
         if task is None:    # use default if not specified
             task = self.task
         self.task = task    # save task
-        
+
         if self._physics_client_id < 0:
 
             # Initialize PyBullet instance
@@ -169,7 +178,7 @@ class PushEnv(BaseEnv, ABC):
             self._obj_initial_pos_list = {}
 
         # Load arm, no need to settle (joint angle set instantly)
-        self.reset_robot(self._mu, self._sigma)
+        self.reset_robot(self._mu, self._sigma, task['init_joint_angles'])
         self.grasp(target_vel=0)
 
         # Reset task - add object before arm down
@@ -202,13 +211,14 @@ class PushEnv(BaseEnv, ABC):
         ee_euler = quat2euler(ee_orn)
 
         # Check reward and done (terminate early if ee out of bound, do not terminate even reaching the target)
-        box_pos, _ = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
+        box_pos, box_quat = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
+        box_yaw = min(abs(quat2euler(box_quat)[0]), self.max_yaw)
         dist = np.linalg.norm(box_pos[:2] - self.target_pos)
-        reward = (1 - dist/self.initial_dist)
+        reward = (1 - dist/self.initial_dist)*0.5 + (1 - box_yaw/self.max_yaw)*0.5
         # if reward < 0.8:    #! sparse, and non-negative
         #     reward = 0
         done = False
-        if abs(ee_pos[0] - 0.5) > 0.3 or abs(ee_pos[1]) > 0.3 or abs(ee_euler[0]) > np.pi/2:
+        if abs(ee_pos[0] - 0.5) > 0.3 or abs(ee_pos[1]) > 0.3:
             done = True
 
         # Return info
@@ -225,10 +235,9 @@ class PushEnv(BaseEnv, ABC):
         obs = self.get_overhead_obs(camera_params)  # uint8
         return obs
 
-    def move(self,
-                target_lin_vel,
-                target_ang_vel,
-                num_steps):
+    def move(self, target_lin_vel,
+                    target_ang_vel,
+                    num_steps):
         target_vel = np.hstack((target_lin_vel, target_ang_vel))
 
         for _ in range(num_steps):

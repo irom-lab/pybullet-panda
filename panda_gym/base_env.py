@@ -62,10 +62,6 @@ class BaseEnv(gym.Env, ABC):
             _num_img_channel += 3  # RGB
         if use_depth:
             _num_img_channel += 1  # D only
-        self.observation_space = gym.spaces.Box(low=np.float32(0.),
-                                                high=np.float32(1.),
-                                                shape=(_num_img_channel, camera_params['img_h'],
-                                                    camera_params['img_w']))
         self._camera_params = camera_params
 
         # Panda config
@@ -120,21 +116,20 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
-    @property
-    @abstractmethod
-    def init_joint_angles(self):
-        """
-        Initial joint angles for the task
-        """
-        raise NotImplementedError
+    # @property
+    # def init_joint_angles(self):
+    #     """
+    #     Initial joint angles for the task
+    #     """
+    #     raise NotImplementedError
 
-    @property
-    def up_joint_angles(self):
-        """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
-        """
-        return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
-            self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
-        ]
+    # @property
+    # def up_joint_angles(self):
+    #     """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
+    #     """
+    #     return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
+    #         self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
+        # ]
 
     @abstractmethod
     def step(self):
@@ -220,7 +215,8 @@ class BaseEnv(gym.Env, ABC):
         self._physics_client_id = -1
         self._panda_id = -1
 
-    def reset_robot(self, mu=0.5, sigma=0.01):
+    def reset_robot(self, mu=0.5, sigma=0.01, init_joint_angles=[
+            0, 0.277, 0, -2.813, 0, 3.483, 0.785]):
         """
         Reset robot for the environment. Called in reset() if loading robot for
         the 1st time, or in reset_task() if loading robot for the 2nd time.
@@ -279,7 +275,7 @@ class BaseEnv(gym.Env, ABC):
             self._p.enableJointForceTorqueSensor(self._panda_id, self._ee_joint_id, 1)
 
         # Reset all joint angles
-        self.reset_robot_joints(self.init_joint_angles)
+        self.reset_robot_joints(init_joint_angles)
 
         # Keep gripper open
         self.grasp(target_vel=0.10)
@@ -306,20 +302,7 @@ class BaseEnv(gym.Env, ABC):
             orn ([type]): [description]
             gripper_closed (bool, optional): [description]. Defaults to False.
         """
-        joint_poses = list(
-            self._p.calculateInverseKinematics(
-                self._panda_id,
-                self._ee_link_id,
-                pos,
-                orn,
-                jointDamping=self._jd,
-                lowerLimits=self._joint_lower_limit,
-                upperLimits=self._joint_upper_limit,
-                jointRanges=self._joint_range,
-                restPoses=self._joint_rest_pose,
-                residualThreshold=1e-4,
-                # maxNumIterations=1e5
-                ))
+        joint_poses = self.get_ik(pos, orn)
         if gripper_closed:
             finger_pos = self._finger_close_pos
         else:
@@ -444,6 +427,22 @@ class BaseEnv(gym.Env, ABC):
         return out
 
     ################# Get info #################
+
+    def get_ik(self, pos, orn):
+        joint_poses = self._p.calculateInverseKinematics(
+                self._panda_id,
+                self._ee_link_id,
+                pos,
+                orn,
+                jointDamping=self._jd,
+                lowerLimits=self._joint_lower_limit,
+                upperLimits=self._joint_upper_limit,
+                jointRanges=self._joint_range,
+                restPoses=self._joint_rest_pose,
+                residualThreshold=1e-4,
+                # maxNumIterations=1e5
+                )
+        return list(joint_poses)
 
     def _get_ee(self):
         info = self._p.getLinkState(self._panda_id, self._ee_link_id)
