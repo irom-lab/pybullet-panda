@@ -31,6 +31,24 @@ class BaseEnv(gym.Env, ABC):
                 Defaults to False.
         """
         super(BaseEnv, self).__init__()
+        if task is None:
+            task = {}
+            task['init_joint_angles'] = [0, 0.277, 0, -2.813, 0, 3.483, 0.785]
+            task['obj_half_dim'] = [0.03,0.03,0.03]
+            task['obj_mass'] = 0.1
+            task['obj_pos'] = [0.5, 0.0, 0.03]
+            task['obj_yaw'] = 0
+            task['obj_com_offset'] = [0,0,0]
+        if camera_params is None:
+            camera_params = {}
+            camera_height = 0.40
+            camera_params['pos'] = np.array([1.0, 0, camera_height])
+            camera_params['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+            camera_params['img_w'] = 64
+            camera_params['img_h'] = 64
+            camera_params['aspect'] = 1
+            camera_params['fov'] = 70    # vertical fov in degrees
+            camera_params['max_depth'] = camera_height
         save__init__args(locals())  # save all class variables
 
         # PyBullet instance
