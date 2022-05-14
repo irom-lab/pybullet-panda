@@ -1,5 +1,4 @@
 import pybullet as p
-import pybullet_data
 import numpy as np
 import time
 import cvxpy as cp
@@ -9,14 +8,12 @@ from panda.panda_env import PandaEnv, full_jacob_pb
 
 class FlipEnv(PandaEnv):
     def __init__(self,
-                 urdfRoot=pybullet_data.getDataPath(),
                  mu=0.4,
                  sigma=0.03,
                  timestep=1. / 240.,
                  finger_type=None):
 
-        super(FlipEnv, self).__init__(urdfRoot=urdfRoot,
-                                      mu=mu,
+        super(FlipEnv, self).__init__(mu=mu,
                                       sigma=sigma,
                                       timestep=timestep,
                                       finger_type=finger_type)

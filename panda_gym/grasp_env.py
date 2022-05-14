@@ -1,6 +1,7 @@
 from abc import ABC
 import numpy as np
-import pybullet_data
+import os
+from os.path import dirname
 
 from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
@@ -58,7 +59,6 @@ class GraspEnv(BaseEnv, ABC):
         # Object id
         self._obj_id_list = []
         self._obj_initial_pos_list = {}
-        self._urdf_root = pybullet_data.getDataPath()
 
         # Camera info
         self._camera_params = camera_params
@@ -133,11 +133,15 @@ class GraspEnv(BaseEnv, ABC):
             self.init_pb()
 
             # Load table
-            self._plane_id = self._p.loadURDF(self._urdf_root + '/plane.urdf',
+            plane_urdf_path =  os.path.join(dirname(dirname(__file__)), 
+                                            f'data/plane/plane.urdf')
+            self._plane_id = self._p.loadURDF(plane_urdf_path,
                                               basePosition=[0, 0, -1],
                                               useFixedBase=1)
+            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
+                                            f'data/table/table.urdf')
             self._table_id = self._p.loadURDF(
-                self._urdf_root + '/table/table.urdf',
+                table_urdf_path,
                 basePosition=[0.400, 0.000, -0.630 + 0.005],
                 baseOrientation=[0., 0., 0., 1.0],
                 useFixedBase=1)

@@ -1,6 +1,7 @@
 from abc import ABC
 import numpy as np
-import pybullet_data
+import os
+from os.path import dirname
 
 from panda_gym.base_env import BaseEnv, normalize_action
 from alano.geometry.transform import quat2euler, euler2quat
@@ -40,12 +41,13 @@ class PushEnv(BaseEnv, ABC):
         # Object id
         self._obj_id_list = []
         self._obj_initial_pos_list = {}
-        self._urdf_root = pybullet_data.getDataPath()
 
         # Continuous action space
-        self.action_low = np.array([-0.05, -0.2, -np.pi/6]) # 0.1
-        self.action_high = np.array([0.2, 0.2, np.pi/6]) # 0.1
-        self._finger_open_pos = 0.0 #! 0.01
+        # self.action_low = np.array([-0.1, -0.3, -np.pi/4])
+        # self.action_high = np.array([0.3, 0.3, np.pi/4])
+        self.action_low = np.array([-0.05, -0.1, -np.pi/4])
+        self.action_high = np.array([0.15, 0.1, np.pi/4])
+        self._finger_open_pos = 0.0
 
         # Max yaw for clipping reward
         self.max_yaw = np.pi/2
@@ -112,6 +114,15 @@ class PushEnv(BaseEnv, ABC):
         )
         self._obj_id_list += [obj_id]
 
+        # # Set friction coefficient for object
+        # self._p.changeDynamics(
+        #     obj_id,
+        #     -1,
+        #     lateralFriction=self._mu,
+        #     spinningFriction=self._sigma,
+        #     frictionAnchor=1,
+        # )
+
         # Set target - account for COM offset
         self.target_pos = np.array([0.70, task['obj_com_offset'][1]])
 
@@ -151,11 +162,15 @@ class PushEnv(BaseEnv, ABC):
             self.init_pb()
 
             # Load table
-            self._plane_id = self._p.loadURDF(self._urdf_root + '/plane.urdf',
+            plane_urdf_path =  os.path.join(dirname(dirname(__file__)), 
+                                            f'data/plane/plane.urdf')
+            self._plane_id = self._p.loadURDF(plane_urdf_path,
                                               basePosition=[0, 0, -1],
                                               useFixedBase=1)
+            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
+                                            f'data/table/table.urdf')
             self._table_id = self._p.loadURDF(
-                self._urdf_root + '/table/table.urdf',
+                table_urdf_path,
                 basePosition=[0.400, 0.000, -0.630 + 0.005],
                 baseOrientation=[0., 0., 0., 1.0],
                 useFixedBase=1)
@@ -187,10 +202,8 @@ class PushEnv(BaseEnv, ABC):
         # Reset timer
         self.step_elapsed = 0
         
-        # Reset safety of the trial
-        self.safe_trial = True
-
         return self._get_obs(self._camera_params)
+
 
     def step(self, action):
         """
@@ -210,13 +223,19 @@ class PushEnv(BaseEnv, ABC):
         ee_pos, ee_orn = self._get_ee()
         ee_euler = quat2euler(ee_orn)
 
-        # Check reward and done (terminate early if ee out of bound, do not terminate even reaching the target)
+        # Check reward
         box_pos, box_quat = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
         box_yaw = min(abs(quat2euler(box_quat)[0]), self.max_yaw)
         dist = np.linalg.norm(box_pos[:2] - self.target_pos)
-        reward = (1 - dist/self.initial_dist)*0.5 + (1 - box_yaw/self.max_yaw)*0.5
-        # if reward < 0.8:    #! sparse, and non-negative
-        #     reward = 0
+        yaw_weight = 0.8
+        dist_ratio = dist/self.initial_dist
+        yaw_ratio = box_yaw/self.max_yaw
+        if dist_ratio < 0.2 and yaw_ratio < 0.2:
+            reward = (1-dist_ratio/0.2)*(1-yaw_weight) + (1-yaw_ratio/0.2)*yaw_weight
+        else:
+            reward = 0
+
+        # Check done - terminate early if ee out of bound, do not terminate even reaching the target
         done = False
         if abs(ee_pos[0] - 0.5) > 0.3 or abs(ee_pos[1]) > 0.3:
             done = True
@@ -231,9 +250,11 @@ class PushEnv(BaseEnv, ABC):
             info['success'] = True
         return self._get_obs(self._camera_params), reward, done, info
 
+
     def _get_obs(self, camera_params):
         obs = self.get_overhead_obs(camera_params)  # uint8
         return obs
+
 
     def move(self, target_lin_vel,
                     target_ang_vel,

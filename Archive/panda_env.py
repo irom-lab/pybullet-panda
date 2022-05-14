@@ -1,5 +1,4 @@
 import pybullet as p
-import pybullet_data
 import numpy as np
 from numpy import array
 
@@ -24,13 +23,11 @@ def plot_frame_pb(pos, orn=np.array([0., 0., 0., 1.]), w_first=False):
 
 class PandaEnv():
     def __init__(self,
-                 urdfRoot=pybullet_data.getDataPath(),
                  mu=0.4,
                  sigma=0.03,
                  timestep=1. / 240.,
                  finger_type=None):
 
-        self._urdfRoot = urdfRoot
         self._timeStep = timestep
 
         self._pandaId = None
