@@ -1,0 +1,55 @@
+<robot name="spatula">
+  <!-- links -->
+  <link name="pad">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="0"  ixy="0"  ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="pad.obj"/>
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="pad.obj"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="handle">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="0"  ixy="0"  ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="handle.obj"/>
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="handle.obj"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- joints -->
+  <joint name="joint" type="fixed">
+    <origin rpy="0 -1.0 0" xyz="-0.08 0 0.015"/>
+    <parent link="pad" />
+    <child link="handle" />
+    <axis xyz="0 0 0" />
+  </joint>
+</robot>
