@@ -33,3 +33,8 @@ class VecEnvGraspMVRandom(VecEnvPanda):
 class VecEnvPush(VecEnvPanda):
     def __init__(self, venv, cpu_offset, device, config_env):
         super(VecEnvPush, self).__init__(venv, cpu_offset, device, config_env)
+
+
+class VecEnvPushTool(VecEnvPanda):
+    def __init__(self, venv, cpu_offset, device, config_env):
+        super(VecEnvPushTool, self).__init__(venv, cpu_offset, device, config_env)

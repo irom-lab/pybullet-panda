@@ -14,3 +14,9 @@ gym.envs.register(  # no time limit imposed
     id='Push-v0',
     entry_point='panda_gym.push_env:PushEnv',
 )
+
+gym.envs.register(  # no time limit imposed
+    id='PushTool-v0',
+    entry_point='panda_gym.push_tool_env:PushToolEnv',
+)
+
