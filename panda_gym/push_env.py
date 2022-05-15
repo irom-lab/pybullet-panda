@@ -49,8 +49,12 @@ class PushEnv(BaseEnv, ABC):
         self.action_high = np.array([0.15, 0.1, np.pi/4])
         self._finger_open_pos = 0.0
 
-        # Max yaw for clipping reward
-        self.max_yaw = np.pi/2
+        # Max object range
+        self.max_obj_yaw = np.pi/2
+
+        # Max EE range
+        self.max_ee_x = [0.2, 0.8]
+        self.max_ee_y = [-0.3, 0.3]
 
 
     @property
@@ -93,15 +97,6 @@ class PushEnv(BaseEnv, ABC):
             baseInertialFramePosition=task['obj_com_offset'],
         )
         self._obj_id_list += [obj_id]
-
-        # # Set friction coefficient for object
-        # self._p.changeDynamics(
-        #     obj_id,
-        #     -1,
-        #     lateralFriction=self._mu,
-        #     spinningFriction=self._sigma,
-        #     frictionAnchor=1,
-        # )
 
         # Set target - account for COM offset
         self.target_pos = np.array([0.70, task['obj_com_offset'][1]])
@@ -179,9 +174,6 @@ class PushEnv(BaseEnv, ABC):
         # Reset task - add object before arm down
         self.reset_task(task)
 
-        # Reset timer
-        self.step_elapsed = 0
-        
         return self._get_obs(self._camera_params)
 
 
@@ -199,17 +191,17 @@ class PushEnv(BaseEnv, ABC):
         target_ang_vel = [0, 0, yaw_vel]
         self.move_vel(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
 
-        # Check arm pose
+        # Check EE
         ee_pos, ee_orn = self._get_ee()
         ee_euler = quat2euler(ee_orn)
 
         # Check reward
-        box_pos, box_quat = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
-        box_yaw = min(abs(quat2euler(box_quat)[0]), self.max_yaw)
-        dist = np.linalg.norm(box_pos[:2] - self.target_pos)
+        obj_pos, obj_quat = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
+        obj_yaw = min(abs(quat2euler(obj_quat)[0]), self.max_obj_yaw)
+        dist = np.linalg.norm(obj_pos[:2] - self.target_pos)
         yaw_weight = 0.8
         dist_ratio = dist/self.initial_dist
-        yaw_ratio = box_yaw/self.max_yaw
+        yaw_ratio = obj_yaw/self.max_obj_yaw
         if dist_ratio < 0.2 and yaw_ratio < 0.2:
             reward = (1-dist_ratio/0.2)*(1-yaw_weight) + (1-yaw_ratio/0.2)*yaw_weight
         else:
@@ -217,7 +209,8 @@ class PushEnv(BaseEnv, ABC):
 
         # Check done - terminate early if ee out of bound, do not terminate even reaching the target
         done = False
-        if abs(ee_pos[0] - 0.5) > 0.3 or abs(ee_pos[1]) > 0.3:
+        if ee_pos[0] < self.max_ee_x[0] or ee_pos[0] > self.max_ee_x[1] \
+            or ee_pos[1] < self.max_ee_y[0] or ee_pos[1] > self.max_ee_y[1]:
             done = True
 
         # Return info
@@ -225,9 +218,6 @@ class PushEnv(BaseEnv, ABC):
         info['task'] = self.task
         info['ee_pos'] = ee_pos
         info['ee_orn'] = ee_orn
-        info['success'] = False
-        if reward > 0.9:
-            info['success'] = True
         return self._get_obs(self._camera_params), reward, done, info
 
 
