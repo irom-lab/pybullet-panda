@@ -1,11 +1,9 @@
 from abc import ABC
 import numpy as np
-import math
 
 from panda_gym.base_env import normalize_action
 from panda_gym.grasp_mv_env import GraspMultiViewEnv
 from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2euler
-
 
 
 class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
@@ -164,10 +162,10 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
             euler2quat([delta_yaw, delta_pitch, delta_roll]), ee_quat)
         ee_euler_nxt = quat2euler(ee_quat_nxt)
         collision_obj_id_list = None
-        self.move(absolute_pos=ee_pos_nxt,
-                  absolute_global_quat=ee_quat_nxt,
-                  num_steps=150,
-                  collision_obj_id_list=collision_obj_id_list)
+        self.move_pose(absolute_pos=ee_pos_nxt,
+                        absolute_global_quat=ee_quat_nxt,
+                        num_steps=150,
+                        collision_obj_id_list=collision_obj_id_list)
 
         # Check if object moved or gripper rolled or pitched, meaning contact happened
         # flag_obj_move = False
@@ -190,14 +188,13 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
         # Grasp if last step, and then lift
         if self.step_elapsed == self.max_steps:
             self.grasp(target_vel=-0.10)  # close
-            self.move(
-                ee_pos_nxt,  # keep for some time
-                absolute_global_quat=ee_quat_nxt,
-                num_steps=150)
+            self.move_pose(ee_pos_nxt,  # keep for some time
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=150)
             ee_pos_nxt[2] += 0.1
-            self.move(ee_pos_nxt,
-                      absolute_global_quat=ee_quat_nxt,
-                      num_steps=150)
+            self.move_pose(ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=150)
         else:
             self.grasp(target_vel=0.10)  # open
 

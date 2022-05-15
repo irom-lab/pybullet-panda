@@ -58,6 +58,7 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         # Fix seed
         self.seed(0)
 
+
     @property
     def action_dim(self):
         """
@@ -65,19 +66,6 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         """
         return 4
 
-    # @abstractmethod
-    # def report(self):
-    #     """
-    #     Print information of robot dynamics and observation.
-    #     """
-    #     raise NotImplementedError
-
-    # @abstractmethod
-    # def visualize(self):
-    #     """
-    #     Visualize trajectories and value functions.
-    #     """
-    #     raise NotImplementedError
 
     def reset_task(self, task):
         """
@@ -168,23 +156,22 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         collision_force_threshold = 0
         if self.step_elapsed == self.max_steps: # only check collision at last step
             collision_force_threshold = 20
-        collision = self.move(absolute_pos=ee_pos_nxt,
-                  absolute_global_quat=ee_quat_nxt,
-                  num_steps=100,
-                  collision_force_threshold=collision_force_threshold,
-                  )
+        collision = self.move_pose(absolute_pos=ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100,
+                            collision_force_threshold=collision_force_threshold,
+                            )
 
         # Grasp if last step, and then lift
         if self.step_elapsed == self.max_steps:
             self.grasp(target_vel=-0.10)  # close
-            self.move(
-                ee_pos_nxt,  # keep for some time
-                absolute_global_quat=ee_quat_nxt,
-                num_steps=100)
+            self.move_pose(ee_pos_nxt,  # keep for some time
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100)
             ee_pos_nxt[2] += 0.1
-            self.move(ee_pos_nxt,
-                      absolute_global_quat=ee_quat_nxt,
-                      num_steps=100)
+            self.move_pose(ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100)
         else:
             self.grasp(target_vel=0.10)  # open
 
@@ -206,8 +193,10 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             done = True
         return self._get_obs(), reward, done, {'success': success, 'safe': self.safe_trial}
 
+
     def _get_obs(self):
         out = self.get_wrist_obs()
+        return out
 
         # import pkgutil
         # egl = pkgutil.get_loader('eglRenderer')
@@ -226,8 +215,6 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         # im_rgb.save('rgb_sample_0.jpg')
         # im_depth = Image.fromarray(out[0])
         # im_depth.save('depth_sample_0.jpg')
-
-        return out
 
         # Check if object moved or gripper rolled or pitched, meaning contact happened
         # flag_obj_move = False

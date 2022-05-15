@@ -8,12 +8,15 @@ from pybullet_utils import bullet_client as bc
 
 from alano.utils.save_init_args import save__init__args
 from alano.geometry.camera import rgba2rgb
-from alano.geometry.transform import quat2rot, euler2quat
+from alano.geometry.transform import quat2rot, euler2quat, quatMult, log_rot
+from alano.geometry.scaling import traj_time_scaling
+from alano.bullet.kinematics import full_jacob_pb
 
 
 def normalize_action(action, lower, upper):
     # assume action in [-1,1]
     return (action+1)/2*(upper-lower) + lower
+
 
 class BaseEnv(gym.Env, ABC):
     def __init__(self,
@@ -108,6 +111,7 @@ class BaseEnv(gym.Env, ABC):
         self._finger_cur_pos = 0.04
         self._finger_cur_vel = 0.05
 
+
     @property
     @abstractmethod
     def action_dim(self):
@@ -116,20 +120,6 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
-    # @property
-    # def init_joint_angles(self):
-    #     """
-    #     Initial joint angles for the task
-    #     """
-    #     raise NotImplementedError
-
-    # @property
-    # def up_joint_angles(self):
-    #     """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
-    #     """
-    #     return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
-    #         self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
-        # ]
 
     @abstractmethod
     def step(self):
@@ -139,19 +129,6 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def report(self):
-        """
-        Print information of robot dynamics and observation.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def visualize(self):
-        """
-        Visualize trajectories and value functions.
-        """
-        raise NotImplementedError
 
     @abstractmethod
     def reset(self, task=None):
@@ -161,6 +138,7 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
+
     @abstractmethod
     def reset_task(self):
         """
@@ -168,9 +146,6 @@ class BaseEnv(gym.Env, ABC):
         """
         raise NotImplementedError
 
-    @property
-    def state(self):
-        return
 
     def seed(self, seed=0):
         """
@@ -280,6 +255,7 @@ class BaseEnv(gym.Env, ABC):
         # Keep gripper open
         self.grasp(target_vel=0.10)
 
+
     def reset_robot_joints(self, angles):
         """[summary]
 
@@ -293,6 +269,7 @@ class BaseEnv(gym.Env, ABC):
             ]
         for i in range(self._num_joint):  # 13
             self._p.resetJointState(self._panda_id, i, angles[i])
+
 
     def reset_arm_joints_ik(self, pos, orn, gripper_closed=False):
         """[summary]
@@ -312,12 +289,6 @@ class BaseEnv(gym.Env, ABC):
         ]
         self.reset_robot_joints(joint_poses)
 
-    @abstractmethod
-    def move(self):
-        """
-        Move robot to the next state; returns next state
-        """
-        raise NotImplementedError
 
     def grasp(self, target_vel=0):
         """
@@ -332,11 +303,210 @@ class BaseEnv(gym.Env, ABC):
         #     else:
         #         self._finger_cur_vel = 0.05
 
+    def move_pose(
+        self,
+        absolute_pos=None,
+        relative_pos=None,
+        absolute_global_euler=None,  # preferred
+        relative_global_euler=None,  # preferred
+        relative_local_euler=None,  # not using
+        absolute_global_quat=None,  # preferred
+        relative_azi=None,  # for arm
+        # relative_quat=None,  # never use relative quat
+        num_steps=50,
+        max_joint_vel=0.20,
+        pos_gain=20,
+        vel_gain=5,
+        collision_force_threshold=0,
+    ):
+
+        # Get trajectory
+        ee_pos, ee_quat = self._get_ee()
+
+        # Determine target pos
+        if absolute_pos is not None:
+            target_pos = absolute_pos
+        elif relative_pos is not None:
+            target_pos = ee_pos + relative_pos
+        else:
+            target_pos = ee_pos
+
+        # Determine target orn
+        if absolute_global_euler is not None:
+            target_orn = euler2quat(absolute_global_euler)
+        elif relative_global_euler is not None:
+            target_orn = quatMult(euler2quat(relative_global_euler), ee_quat)
+        elif relative_local_euler is not None:
+            target_orn = quatMult(ee_quat, euler2quat(relative_local_euler))
+        elif absolute_global_quat is not None:
+            target_orn = absolute_global_quat
+        elif relative_azi is not None:
+            # Extrinsic yaw
+            target_orn = quatMult(euler2quat([relative_azi[0], 0, 0]), ee_quat)
+            # Intrinsic pitch
+            target_orn = quatMult(target_orn,
+                                  euler2quat([0, relative_azi[1], 0]))
+        # elif relative_quat is not None:
+        # 	target_orn = quatMult(ee_quat, relative_quat)
+        else:
+            target_orn = np.array([1.0, 0., 0., 0.])
+
+        # Get trajectory
+        traj_pos = traj_time_scaling(start_pos=ee_pos,
+                                     end_pos=target_pos,
+                                     num_steps=num_steps)
+
+        # Run steps
+        collision = False
+        num_steps = len(traj_pos)
+        for step in range(num_steps):
+
+            # Get joint velocities from error tracking control, takes 0.2ms
+            joint_dot = self.traj_tracking_vel(target_pos=traj_pos[step],
+                                               target_quat=target_orn,
+                                               pos_gain=pos_gain,
+                                               vel_gain=vel_gain)
+
+            # Send velocity commands to joints
+            for i in range(self._num_joint_arm):
+                self._p.setJointMotorControl2(self._panda_id,
+                                              i,
+                                              self._p.VELOCITY_CONTROL,
+                                              targetVelocity=joint_dot[i],
+                                              force=self._max_joint_force[i],
+                                              maxVelocity=max_joint_vel)
+
+            # Keep gripper current velocity
+            self._p.setJointMotorControl2(self._panda_id,
+                                          self._left_finger_joint_id,
+                                          self._p.VELOCITY_CONTROL,
+                                          targetVelocity=self._finger_cur_vel,
+                                          force=self._max_finger_force,
+                                          maxVelocity=0.10)
+            self._p.setJointMotorControl2(self._panda_id,
+                                          self._right_finger_joint_id,
+                                          self._p.VELOCITY_CONTROL,
+                                          targetVelocity=self._finger_cur_vel,
+                                          force=self._max_finger_force,
+                                          maxVelocity=0.10)
+
+            # Check contact
+            if collision_force_threshold > 0:
+                fm = np.array(self._p.getJointState(self._panda_id, self._ee_joint_id)[2])
+                if np.any(fm[:3] > collision_force_threshold):
+                    collision = True
+
+            # Step simulation, takes 1.5ms
+            self._p.stepSimulation()
+        return collision
+
+
+    def move_vel(self, target_lin_vel, target_ang_vel, num_steps):
+        target_vel = np.hstack((target_lin_vel, target_ang_vel))
+
+        for _ in range(num_steps):
+            joint_poses = list(
+                np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
+            ee_state = self._p.getLinkState(self._panda_id,
+                                     self._ee_link_id,
+                                     computeLinkVelocity=1,
+                                     computeForwardKinematics=1)
+
+            # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
+            zero_vec = list(np.zeros_like(joint_poses))
+            jac_t, jac_r = self._p.calculateJacobian(
+                self._panda_id, self._ee_link_id,
+                ee_state[2], joint_poses, zero_vec,
+                zero_vec)  # use localInertialFrameOrientation
+            jac_sp = full_jacob_pb(
+                jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three column
+            try:
+                joint_dot = np.linalg.pinv(jac_sp).dot(target_vel)
+            except np.linalg.LinAlgError:
+                joint_dot = np.zeros((7, 1))
+
+            #! Do not account for joint limit for now
+            # jointDot = cp.Variable(7)
+            # prob = cp.Problem(
+            #         cp.Minimize(cp.norm2(jac_sp @ jointDot - target_vel)), \
+            #         [jointDot >= -self._panda.jointMaxVel, \
+            #         jointDot <= self._panda.jointMaxVel]
+            #         )
+            # prob.solve()
+            # jointDot = jointDot.value
+
+            # Send velocity commands to joints
+            for i in range(self._num_joint_arm):
+                self._p.setJointMotorControl2(
+                    self._panda_id,
+                    i,
+                    self._p.VELOCITY_CONTROL,
+                    targetVelocity=joint_dot[i],
+                    force=self._max_joint_force[i],
+                    maxVelocity=self._joint_max_vel[i],
+                )
+
+            # Keep gripper current velocity
+            for id in [self._left_finger_joint_id, self._right_finger_joint_id]:
+                self._p.setJointMotorControl2(self._panda_id,
+                                        id,
+                                        self._p.VELOCITY_CONTROL,
+                                        targetVelocity=self._finger_cur_vel,
+                                        force=self._max_finger_force,
+                                        maxVelocity=0.10)
+
+            # Step simulation, takes 1.5ms
+            self._p.stepSimulation()
+            # print(
+            #     p.getLinkState(self._pandaId,
+            #                    self._panda.pandaEndEffectorLinkIndex,
+            #                    computeLinkVelocity=1)[6])
+            # print(p.getBaseVelocity(objId)[1])
+            # print("===")
+        return 1
+
+
+    def traj_tracking_vel(self,
+                          target_pos,
+                          target_quat,
+                          pos_gain=20,
+                          vel_gain=5):  #Change gains based off mouse
+        ee_pos, ee_quat = self._get_ee()
+
+        ee_pos_error = target_pos - ee_pos
+        # ee_orn_error = log_rot(quat2rot(target_quat)@(quat2rot(ee_quat).T))  # in spatial frame
+        ee_orn_error = log_rot(
+            quat2rot(target_quat).dot(
+                (quat2rot(ee_quat).T)))  # in spatial frame
+
+        joint_poses = list(
+            np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
+        ee_state = self._p.getLinkState(self._panda_id,
+                                        self._ee_link_id,
+                                        computeLinkVelocity=1,
+                                        computeForwardKinematics=1)
+        # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
+        zero_vec = list(np.zeros_like(joint_poses))
+        jac_t, jac_r = self._p.calculateJacobian(
+            self._panda_id, self._ee_link_id, ee_state[2], joint_poses,
+            zero_vec, zero_vec)  # use localInertialFrameOrientation
+        jac_sp = full_jacob_pb(
+            jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three columns
+        try:
+            joint_dot = np.linalg.pinv(jac_sp).dot((np.hstack(
+                (pos_gain * ee_pos_error,
+                 vel_gain * ee_orn_error)).reshape(6, 1)))  # pseudo-inverse
+        except np.linalg.LinAlgError:
+            joint_dot = np.zeros((7, 1))
+        return joint_dot
+
+
     ################# Obs #################
 
     @abstractmethod
     def _get_obs(self):
         raise NotImplementedError
+
 
     def get_overhead_obs(self, camera_params):
         far = 1000.0
@@ -374,6 +544,7 @@ class BaseEnv(gym.Env, ABC):
             out += [rgb]
         out = np.concatenate(out)
         return out  # uint8
+
 
     def get_wrist_obs(self):    # todo: use dict for params
         """Wrist camera image
@@ -444,32 +615,39 @@ class BaseEnv(gym.Env, ABC):
                 )
         return list(joint_poses)
 
+
     def _get_ee(self):
         info = self._p.getLinkState(self._panda_id, self._ee_link_id)
         return np.array(info[4]), np.array(info[5])
+
 
     def _get_arm_joints(self):  # use list
         info = self._p.getJointStates(self._panda_id,
                                       range(self._num_joint_arm))
         return np.array([x[0] for x in info])
 
+
     def _get_gripper_joint(self):
         info = self._p.getJointState(
             self._panda_id, self._left_finger_joint_id)  # assume symmetrical
         return np.array(info[0]), np.array(info[1])
 
+
     def _get_left_finger(self):
         info = self._p.getLinkState(self._panda_id, self._left_finger_link_id)
         return np.array(info[4]), np.array(info[5])
+
 
     def _get_right_finger(self):
         info = self._p.getLinkState(self._panda_id, self._right_finger_link_id)
         return np.array(info[4]), np.array(info[5])
 
+
     def _get_state(self):
         ee_pos, ee_orn = self._get_ee()
         arm_joints = self._get_arm_joints()  # angles only
         return np.hstack((ee_pos, ee_orn, arm_joints))
+
 
     def _check_obj_contact(self, obj_id, both=False):
         left_contacts, right_contacts = self._get_finger_contact(obj_id)
@@ -480,6 +658,7 @@ class BaseEnv(gym.Env, ABC):
             if len(left_contacts) > 0 or len(right_contacts) > 0:
                 return 1
         return 0
+
 
     def _get_finger_contact(self, obj_id, min_force=1e-1):
         num_joint = self._p.getNumJoints(obj_id)
@@ -503,6 +682,7 @@ class BaseEnv(gym.Env, ABC):
             right_contacts += right_contact
         return left_contacts, right_contacts
 
+
     def _get_finger_force(self, obj_id):
         left_contacts, right_contacts = self._get_finger_contact(obj_id)
         left_force = np.zeros((3))
@@ -524,6 +704,7 @@ class BaseEnv(gym.Env, ABC):
             return left_force, right_force, \
              np.array(left_contacts[0][6]), np.array(right_contacts[0][6]), \
              left_normal_mag, right_normal_mag
+
 
     def _check_hold_object(self, obj_id, min_force=10.0):
         left_contacts, right_contacts = self._get_finger_contact(obj_id)

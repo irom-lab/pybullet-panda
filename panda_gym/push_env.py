@@ -52,6 +52,7 @@ class PushEnv(BaseEnv, ABC):
         # Max yaw for clipping reward
         self.max_yaw = np.pi/2
 
+
     @property
     def action_dim(self):
         """
@@ -59,27 +60,6 @@ class PushEnv(BaseEnv, ABC):
         """
         return 3
 
-    # @property
-    # def init_joint_angles(self):
-    #     """
-    #     Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
-    #     """
-    #     return [
-    #         0, 0.277, 0, -2.813, 0, 3.483, 0.785, 0, 0,
-    #         self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
-    #     ]
-
-    def report(self):
-        """
-        Print information of robot dynamics and observation.
-        """
-        raise NotImplementedError
-
-    def visualize(self):
-        """
-        Visualize trajectories and value functions.
-        """
-        raise NotImplementedError
 
     def reset_task(self, task):
         """
@@ -217,7 +197,7 @@ class PushEnv(BaseEnv, ABC):
         x_vel, y_vel, yaw_vel = norm_action
         target_lin_vel = [x_vel, y_vel, 0]
         target_ang_vel = [0, 0, yaw_vel]
-        self.move(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
+        self.move_vel(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
 
         # Check arm pose
         ee_pos, ee_orn = self._get_ee()
@@ -256,68 +236,12 @@ class PushEnv(BaseEnv, ABC):
         return obs
 
 
-    def move(self, target_lin_vel,
-                    target_ang_vel,
-                    num_steps):
-        target_vel = np.hstack((target_lin_vel, target_ang_vel))
-
-        for _ in range(num_steps):
-            joint_poses = list(
-                np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
-            ee_state = self._p.getLinkState(self._panda_id,
-                                     self._ee_link_id,
-                                     computeLinkVelocity=1,
-                                     computeForwardKinematics=1)
-
-            # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
-            zero_vec = list(np.zeros_like(joint_poses))
-            jac_t, jac_r = self._p.calculateJacobian(
-                self._panda_id, self._ee_link_id,
-                ee_state[2], joint_poses, zero_vec,
-                zero_vec)  # use localInertialFrameOrientation
-            jac_sp = full_jacob_pb(
-                jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three column
-            try:
-                joint_dot = np.linalg.pinv(jac_sp).dot(target_vel)
-            except np.linalg.LinAlgError:
-                joint_dot = np.zeros((7, 1))
-
-            #! Do not account for joint limit for now
-            # jointDot = cp.Variable(7)
-            # prob = cp.Problem(
-            #         cp.Minimize(cp.norm2(jac_sp @ jointDot - target_vel)), \
-            #         [jointDot >= -self._panda.jointMaxVel, \
-            #         jointDot <= self._panda.jointMaxVel]
-            #         )
-            # prob.solve()
-            # jointDot = jointDot.value
-
-            # Send velocity commands to joints
-            for i in range(self._num_joint_arm):
-                self._p.setJointMotorControl2(
-                    self._panda_id,
-                    i,
-                    self._p.VELOCITY_CONTROL,
-                    targetVelocity=joint_dot[i],
-                    force=self._max_joint_force[i],
-                    maxVelocity=self._joint_max_vel[i],
-                )
-
-            # Keep gripper current velocity
-            for id in [self._left_finger_joint_id, self._right_finger_joint_id]:
-                self._p.setJointMotorControl2(self._panda_id,
-                                        id,
-                                        self._p.VELOCITY_CONTROL,
-                                        targetVelocity=self._finger_cur_vel,
-                                        force=self._max_finger_force,
-                                        maxVelocity=0.10)
-
-            # Step simulation, takes 1.5ms
-            self._p.stepSimulation()
-            # print(
-            #     p.getLinkState(self._pandaId,
-            #                    self._panda.pandaEndEffectorLinkIndex,
-            #                    computeLinkVelocity=1)[6])
-            # print(p.getBaseVelocity(objId)[1])
-            # print("===")
-        return 1
+    # @property
+    # def init_joint_angles(self):
+    #     """
+    #     Initial joint angles for the task - [0.45, 0, 0.40], straight down - ee to finger tip is 15.5cm
+    #     """
+    #     return [
+    #         0, 0.277, 0, -2.813, 0, 3.483, 0.785, 0, 0,
+    #         self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
+    #     ]
