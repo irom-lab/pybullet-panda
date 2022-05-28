@@ -1,29 +1,28 @@
 from abc import ABC, abstractmethod
+import os
+from os.path import dirname
 import pathlib
+from re import L
 import numpy as np
 import torch
 import gym
 import pybullet as p
 from pybullet_utils import bullet_client as bc
+from collections import deque
 
-from alano.utils.save_init_args import save__init__args
 from alano.geometry.camera import rgba2rgb
-from alano.geometry.transform import quat2rot, euler2quat, quatMult, log_rot
+from alano.geometry.transform import quat2rot, euler2quat, quatMult, log_rot, quatInverse, quat2euler
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
-
-
-def normalize_action(action, lower, upper):
-    # assume action in [-1,1]
-    return (action+1)/2*(upper-lower) + lower
+from alano.bullet.visualize import plot_frame_pb
 
 
 class BaseEnv(gym.Env, ABC):
     def __init__(self,
                  task=None,
                  renders=False,
-                 use_rgb=False,
-                 use_depth=True,
+                 use_rgb=True,
+                 use_depth=False,
                  camera_params=None,
                 #  finger_type='drake'
                  ):
@@ -34,14 +33,10 @@ class BaseEnv(gym.Env, ABC):
                 Defaults to False.
         """
         super(BaseEnv, self).__init__()
-        if task is None:
-            task = {}
-            task['init_joint_angles'] = [0, 0.277, 0, -2.813, 0, 3.483, 0.785]
-            task['obj_half_dim'] = [0.03,0.03,0.03]
-            task['obj_mass'] = 0.1
-            task['obj_pos'] = [0.5, 0.0, 0.03]
-            task['obj_yaw'] = 0
-            task['obj_com_offset'] = [0,0,0]
+        self.task = task
+        self.renders = renders
+        self.use_depth = use_depth
+        self.use_rgb = use_rgb
         if camera_params is None:
             camera_params = {}
             camera_height = 0.40
@@ -52,7 +47,7 @@ class BaseEnv(gym.Env, ABC):
             camera_params['aspect'] = 1
             camera_params['fov'] = 70    # vertical fov in degrees
             camera_params['max_depth'] = camera_height
-        save__init__args(locals())  # save all class variables
+        self.camera_params = camera_params
 
         # PyBullet instance
         self._p = None
@@ -91,25 +86,48 @@ class BaseEnv(gym.Env, ABC):
         self._left_finger_joint_id = 9
         self._right_finger_joint_id = 11
         self._max_joint_force = [87, 87, 87, 87, 12, 12, 12]  # from website
-        self._max_finger_force = 20.0
-        # self.maxFingerForce = 35  # office documentation says 70N continuous force
+        # self._max_finger_force = 20.0
+        self._max_finger_force = 35  # office documentation says 70N continuous force
         self._jd = [
             0.00001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001,
-            0.00001, 0.00001, 0.00001, 0.00001, 0.00001, 0.00001
+            0.00001, 0.00001,
         ]  # joint damping coefficient
-        self._joint_upper_limit = [2.90, 1.76, 2.90, -0.07, 2.90, 3.75, 2.90]
-        self._joint_lower_limit = [
-            -2.90, -1.76, -2.90, -3.07, -2.90, -0.02, -2.90
-        ]
-        self._joint_range = [5.8, 3.5, 5.8, 3, 5.8, 3.8, 5.8]
-        self._joint_rest_pose = [0, -1.4, 0, -1.4, 0, 1.2, 0]
-        self._joint_max_vel = np.array([2.0, 2.0, 2.0, 2.0, 2.5, 2.5,
-                                        2.5])  # actually 2.175 and 2.61
-        self._finger_open_pos = 0.04
-        self._finger_close_pos = 0.0
+        # self._joint_upper_limit = [2.90, 1.76, 2.90, -0.07, 2.90, 3.75, 2.90, 0.04, 0.04]
+        # self._joint_lower_limit = [-2.90, -1.76, -2.90, -3.07, -2.90, -0.02, -2.90, -0.04, -0.04]
+        # self._joint_range = [5.8, 3.5, 5.8, 3, 5.8, 3.8, 5.8, 0.0, 0.0]
+        self._joint_rest_pose = [0, 0.35, 0, -2.813, 0, 3.483, 0.785, 0.0, 0.0]
+        self._joint_max_vel = np.array([2.0, 2.0, 2.0, 2.0, 2.5, 2.5, 2.5])  # actually 2.175 and 2.61
+
         # Initialize current finger pos/vel
         self._finger_cur_pos = 0.04
-        self._finger_cur_vel = 0.05
+        self._finger_cur_vel = 0.10
+        self._finger_open_pos = 0.04
+        self._finger_close_pos = 0.0
+        self._finger_open_vel = 0.10
+        self._finger_close_vel = -0.10
+
+
+    def seed(self, seed=0):
+        """Set when vec_env constructed"""
+        self.seed_val = seed
+        self.rng = np.random.default_rng(seed=self.seed_val)
+        torch.manual_seed(self.seed_val)
+        torch.cuda.manual_seed(self.seed_val)
+        torch.cuda.manual_seed_all(
+            self.seed_val)  # if you are using multi-GPU.
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        # self.np_random, seed = gym.utils.seeding.np_random(seed)
+        # return [seed]
+
+
+    @property
+    @abstractmethod
+    def state_dim(self):
+        """
+        Dimension of robot state
+        """
+        raise NotImplementedError
 
 
     @property
@@ -117,6 +135,15 @@ class BaseEnv(gym.Env, ABC):
     def action_dim(self):
         """
         Dimension of robot action
+        """
+        raise NotImplementedError
+
+
+    @property
+    @abstractmethod
+    def state(self):
+        """
+        Current obot state
         """
         raise NotImplementedError
 
@@ -131,15 +158,6 @@ class BaseEnv(gym.Env, ABC):
 
 
     @abstractmethod
-    def reset(self, task=None):
-        """
-        Reset the environment, including robot state, task, and obstacles.
-        Initialize pybullet client if 1st time.
-        """
-        raise NotImplementedError
-
-
-    @abstractmethod
     def reset_task(self):
         """
         Reset the task for the environment.
@@ -147,24 +165,75 @@ class BaseEnv(gym.Env, ABC):
         raise NotImplementedError
 
 
-    def seed(self, seed=0):
+    def reset(self, task=None):
         """
-        Set the seed of the environment. Should be called after action_sapce is
-        defined.
+        Reset the environment, including robot state, task, and obstacles.
+        """
+        if task is None:
+            task = self.task
+        self.task = task
 
-        Args:
-            seed (int, optional): random seed value. Defaults to 0.
-        """
-        self.seed_val = seed
-        self.rng = np.random.default_rng(seed=self.seed_val)
-        torch.manual_seed(self.seed_val)
-        torch.cuda.manual_seed(self.seed_val)
-        torch.cuda.manual_seed_all(
-            self.seed_val)  # if you are using multi-GPU.
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-        # self.np_random, seed = gym.utils.seeding.np_random(seed)
-        # return [seed]
+        # Initialize if not yet.
+        if self._physics_client_id < 0:
+
+            # Initialize PyBullet instance
+            self.init_pb()
+
+            # Load table
+            plane_urdf_path =  os.path.join(dirname(dirname(__file__)), 
+                                            f'data/plane/plane.urdf')
+            self._plane_id = self._p.loadURDF(plane_urdf_path,
+                                              basePosition=[0, 0, -1],
+                                              useFixedBase=1)
+            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
+                                            f'data/table/table.urdf')
+            self._table_id = self._p.loadURDF(
+                table_urdf_path,
+                basePosition=[0.400, 0.000, -0.630 + 0.005],
+                baseOrientation=[0., 0., 0., 1.0],
+                useFixedBase=1)
+
+            # Set friction coefficient for table
+            self._p.changeDynamics(self._table_id, -1,
+                                lateralFriction=self._mu,
+                                spinningFriction=self._sigma,
+                                frictionAnchor=1,
+                                )
+
+            # Change color
+            self._p.changeVisualShape(self._table_id, -1,
+                                    rgbaColor=[0.7, 0.7, 0.7, 1.0])
+
+        # Load arm - need time for gripper to reset - weird issue with the constraint that the initial finger joint cannot be reset instantly
+        self.reset_robot(self._mu, self._sigma, task)
+        self.grasp(target_vel=task['initial_finger_vel'])
+        if self._finger_cur_vel > 0:
+            for _ in range(10):
+                for i in range(self._num_joint_arm):
+                    self._p.setJointMotorControl2(self._panda_id, i,
+                                                self._p.VELOCITY_CONTROL,
+                                                targetVelocity=0,
+                                                force=self._max_joint_force[i],
+                                                maxVelocity=0.1)
+                self._p.setJointMotorControl2(self._panda_id,
+                                            self._left_finger_joint_id,
+                                            self._p.VELOCITY_CONTROL,
+                                            targetVelocity=self._finger_cur_vel,
+                                            force=50,
+                                            maxVelocity=1.0)
+                self._p.setJointMotorControl2(self._panda_id,
+                                            self._right_finger_joint_id,
+                                            self._p.VELOCITY_CONTROL,
+                                            targetVelocity=self._finger_cur_vel,
+                                            force=50,
+                                            maxVelocity=1.0)
+                self._p.stepSimulation()
+
+        # Reset task - add object before arm down
+        self.reset_task(task)
+
+        return self._get_obs(self._camera_params)
+
 
     def init_pb(self):
         """
@@ -182,16 +251,17 @@ class BaseEnv(gym.Env, ABC):
         self._p.setGravity(0, 0, -9.8)
         self._p.setPhysicsEngineParameter(enableConeFriction=1)
 
+
     def close_pb(self):
         """
-        Kills created obkects and closes pybullet simulator.
+        Kills created objects and closes pybullet simulator.
         """
         self._p.disconnect()
         self._physics_client_id = -1
         self._panda_id = -1
 
-    def reset_robot(self, mu=0.5, sigma=0.01, init_joint_angles=[
-            0, 0.277, 0, -2.813, 0, 3.483, 0.785]):
+
+    def reset_robot(self, mu=0.5, sigma=0.01, task=None):
         """
         Reset robot for the environment. Called in reset() if loading robot for
         the 1st time, or in reset_task() if loading robot for the 2nd time.
@@ -249,11 +319,14 @@ class BaseEnv(gym.Env, ABC):
             # Measure EE joint
             self._p.enableJointForceTorqueSensor(self._panda_id, self._ee_joint_id, 1)
 
-        # Reset all joint angles
-        self.reset_robot_joints(init_joint_angles)
+        # Solve ik if needed
+        if 'init_pose' in task:
+            pos = task['init_pose'][:3]
+            orn = task['init_pose'][3:]
+            task['init_joint_angles'] = self.get_ik(pos, orn)
 
-        # Keep gripper open
-        self.grasp(target_vel=0.10)
+        # Reset all joint angles
+        self.reset_robot_joints(task['init_joint_angles'])
 
 
     def reset_robot_joints(self, angles):
@@ -268,6 +341,8 @@ class BaseEnv(gym.Env, ABC):
                 self._finger_open_pos, 0.0
             ]
         for i in range(self._num_joint):  # 13
+            # print(self._p.getJointState(self._panda_id, i))
+            # print(self._p.getJointInfo(self._panda_id, i))
             self._p.resetJointState(self._panda_id, i, angles[i])
 
 
@@ -295,13 +370,7 @@ class BaseEnv(gym.Env, ABC):
         Change gripper velocity direction
         """
         self._finger_cur_vel = target_vel
-        # if target_vel > 1e-2 or target_vel < -1e-2:
-        #     self._finger_cur_vel = target_vel
-        # else:
-        #     if self._finger_cur_vel > 0.0:
-        #         self._finger_cur_vel = -0.05
-        #     else:
-        #         self._finger_cur_vel = 0.05
+
 
     def move_pose(
         self,
@@ -401,16 +470,53 @@ class BaseEnv(gym.Env, ABC):
         return collision
 
 
-    def move_vel(self, target_lin_vel, target_ang_vel, num_steps):
+    def move_vel(self, target_lin_vel, target_ang_vel, num_steps, 
+                        check_obj_between_finger=False,
+                        grasp_vel=None,
+                        init_quat=None,
+                        max_roll=np.pi/4,
+                        max_pitch=np.pi/4,
+                        roll_spring_threshold=np.pi/36,
+                        pitch_spring_threshold=np.pi/36,
+                        max_roll_vel=np.pi/4,
+                        max_pitch_vel=np.pi/4,
+                        apply_grasp_threshold=None,
+                        z_vel_spring_threshold=0.05,
+                        z_vel_max=0.1):
         target_vel = np.hstack((target_lin_vel, target_ang_vel))
 
+        ray_queue = deque([0 for _ in range(10)], maxlen=10)
         for _ in range(num_steps):
             joint_poses = list(
                 np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
             ee_state = self._p.getLinkState(self._panda_id,
-                                     self._ee_link_id,
-                                     computeLinkVelocity=1,
-                                     computeForwardKinematics=1)
+                                            self._ee_link_id,
+                                            computeLinkVelocity=1,
+                                            computeForwardKinematics=1)
+
+            # Apply spring to z velocity if close to table
+            finger_z = self._get_lowerest_pos()[2]
+            if finger_z < z_vel_spring_threshold and target_vel[2] < 0:
+                min_vel = -z_vel_max*(finger_z / z_vel_spring_threshold)
+                target_vel[2] = max(min_vel, target_vel[2])
+
+            # Apply spring to roll / pitch if close to limit
+            if init_quat is not None:
+                _, ee_quat = self._get_ee()
+                ee_quat_diff = quatMult(ee_quat, quatInverse(init_quat))
+                _, pitch_diff, roll_diff = quat2euler(ee_quat_diff)
+                if roll_diff > (max_roll-roll_spring_threshold):
+                    max_vel = max_roll_vel*((max_roll-roll_diff) / roll_spring_threshold)
+                    target_vel[3] = min(max_vel, target_vel[3])
+                if roll_diff < (-max_roll+roll_spring_threshold):
+                    min_vel = -max_roll_vel*((max_roll+roll_diff) / roll_spring_threshold)
+                    target_vel[3] = max(min_vel, target_vel[3])
+                if pitch_diff > (max_pitch-pitch_spring_threshold):
+                    max_vel = max_pitch_vel*((max_pitch-pitch_diff) / pitch_spring_threshold)
+                    target_vel[4] = min(max_vel, target_vel[4])
+                if pitch_diff < (-max_pitch+pitch_spring_threshold):
+                    min_vel = -max_pitch_vel*((max_pitch+pitch_diff) / pitch_spring_threshold)
+                    target_vel[4] = max(min_vel, target_vel[4])
 
             # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
             zero_vec = list(np.zeros_like(joint_poses))
@@ -455,8 +561,34 @@ class BaseEnv(gym.Env, ABC):
                                         force=self._max_finger_force,
                                         maxVelocity=0.10)
 
+            # Apply grasp if specified
+            if apply_grasp_threshold is not None:
+                finger_z = self._get_lowerest_pos()[2]
+                if finger_z > apply_grasp_threshold and not self.grasp_executed:
+                    self.grasp(self._finger_open_vel)
+                else:
+                    self.grasp(self._finger_close_vel)
+                    self.grasp_executed = True
+            elif grasp_vel is not None:
+                self.grasp(grasp_vel)
+
+            # Object between finger
+            # elif check_obj_between_finger and self._check_obj_between_finger():
+            #     self.grasp(self._finger_close_vel)
+            #     self.grasp_executed = True
+            #     print('here')
+            # else:
+            #     print('open')
+            #     self.grasp(self._finger_open_vel)
+
             # Step simulation, takes 1.5ms
+            # import time
+            # s1 = time.time()
             self._p.stepSimulation()
+            # print(time.time()-s1)
+            # for info in self._p.getContactPoints(self.block_id, self.peg_id):
+            #     print(info[8], info[9])
+            # exit()
             # print(
             #     p.getLinkState(self._pandaId,
             #                    self._panda.pandaEndEffectorLinkIndex,
@@ -501,7 +633,7 @@ class BaseEnv(gym.Env, ABC):
         return joint_dot
 
 
-    ################# Obs #################
+    ################# Observation #################
 
     @abstractmethod
     def _get_obs(self):
@@ -535,7 +667,7 @@ class BaseEnv(gym.Env, ABC):
         out = []
         if self.use_depth:
             depth = far * near / (far - (far - near) * depth)
-            depth = (camera_params['max_depth'] - depth) / camera_params['max_depth']
+            depth = (camera_params['overhead_max_depth'] - depth) / (camera_params['overhead_max_depth'] - camera_params['overhead_min_depth'])
             depth = depth.clip(min=0., max=1.)
             depth = np.uint8(depth * 255)
             out += [depth[np.newaxis]]
@@ -546,12 +678,12 @@ class BaseEnv(gym.Env, ABC):
         return out  # uint8
 
 
-    def get_wrist_obs(self):    # todo: use dict for params
+    def get_wrist_obs(self, camera_params):    # todo: use dict for params
         """Wrist camera image
         """
         ee_pos, ee_quat = self._get_ee()
         rot_matrix = quat2rot(ee_quat)
-        camera_pos = ee_pos + rot_matrix.dot(self.camera_wrist_offset)
+        camera_pos = ee_pos + rot_matrix.dot(camera_params['wrist_offset'])
         # plot_frame_pb(camera_pos, ee_orn)
 
         # Initial vectors
@@ -568,52 +700,67 @@ class BaseEnv(gym.Env, ABC):
         far = 1000.0
         near = 0.01
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=self.camera_fov,
-            aspect=self.camera_aspect,
+            fov=camera_params['fov'],
+            aspect=camera_params['aspect'],
             nearVal=near,
             farVal=far)
         _, _, rgb, depth, _ = self._p.getCameraImage(
-            self.img_w,
-            self.img_h,
+            camera_params['img_w'],
+            camera_params['img_h'],
             view_matrix,
             projection_matrix,
             flags=self._p.ER_NO_SEGMENTATION_MASK)
         out = []
         if self.use_depth:
             depth = far * near / (far - (far - near) * depth)
-            depth = (self.camera_max_depth - depth) / self.camera_max_depth
-            depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #todo: use self.rng
+            depth = (camera_params['wrist_max_depth'] - depth) / camera_params['wrist_max_depth']
+            # depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #todo: use self.rng
             depth = depth.clip(min=0., max=1.)
             depth = np.uint8(depth * 255)
             out += [depth[np.newaxis]]
         if self.use_rgb:
             rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
-            rgb_mask = np.uint8(np.random.choice(np.arange(0,2), size=rgb.shape[1:], replace=True, p=[0.95, 0.05]))
-            rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #todo: use self.rng
-            rgb_mask *= rgb_random
-            rgb = np.where(rgb_mask > 0, rgb_mask, rgb)
+            # rgb_mask = np.uint8(np.random.choice(np.arange(0,2), size=rgb.shape[1:], replace=True, p=[0.95, 0.05]))
+            # rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #todo: use self.rng
+            # rgb_mask *= rgb_random
+            # rgb = np.where(rgb_mask > 0, rgb_mask, rgb)
             out += [rgb]
         out = np.concatenate(out)
-
         return out
 
-    ################# Get info #################
+
+    ################# Misc info #################
 
     def get_ik(self, pos, orn):
+        # Null-space IK not working now - Need to manually set joints to rest pose
+        self.reset_robot_joints(self._joint_rest_pose)
         joint_poses = self._p.calculateInverseKinematics(
                 self._panda_id,
                 self._ee_link_id,
                 pos,
                 orn,
-                jointDamping=self._jd,
-                lowerLimits=self._joint_lower_limit,
-                upperLimits=self._joint_upper_limit,
-                jointRanges=self._joint_range,
-                restPoses=self._joint_rest_pose,
+                jointDamping=self._jd,  # damping required - not sure why
+                # lowerLimits=self._joint_lower_limit,
+                # upperLimits=self._joint_upper_limit,
+                # jointRanges=self._joint_range,
+                # restPoses=self._joint_rest_pose,
                 residualThreshold=1e-4,
+                # solver=self._p.IK_SDLS,
                 # maxNumIterations=1e5
                 )
         return list(joint_poses)
+
+
+    def _get_lowerest_pos(self):
+        """Assume fingertips"""
+        pos, quat = self._get_ee()
+        joint = self._get_gripper_joint()[0]
+        pos_1 = pos + quat2rot(quat)@np.array([0.0, joint, 0.155])
+        pos_2 = pos + quat2rot(quat)@np.array([0.0, -joint, 0.155])
+        if pos_1[2] < pos_2[2]:
+            return pos_1
+        else:
+            return pos_2
 
 
     def _get_ee(self):
@@ -711,3 +858,64 @@ class BaseEnv(gym.Env, ABC):
         left_normal_mag = sum([i[9] for i in left_contacts])
         right_normal_mag = sum([i[9] for i in right_contacts])
         return left_normal_mag > min_force and right_normal_mag > min_force
+
+
+    def _get_min_dist_from_finger(self, obj_id, max_dist=0.2):
+        info_left = self._p.getClosestPoints(self._panda_id, obj_id, 
+                                        distance=max_dist, 
+                                        linkIndexA=self._left_finger_link_id)
+        info_right = self._p.getClosestPoints(self._panda_id, obj_id, 
+                                        distance=max_dist, 
+                                        linkIndexA=self._right_finger_link_id)
+        infos = info_left + info_right
+        dists = []
+        for info in infos:
+            finger_pos = info[5]
+            obj_pos = info[6]
+            dists += [np.linalg.norm(np.array(finger_pos)-np.array(obj_pos))]
+        if len(dists) == 0:
+            return max_dist
+        else:
+            return min(dists)
+
+
+    def _get_min_dist_between_obj(self, a_id, b_id, max_dist=0.2):
+        """Consider all links in both objects"""
+        infos = self._p.getClosestPoints(a_id, b_id, 
+                                        distance=max_dist)
+        dists = []
+        for info in infos:
+            a_pos = info[5]
+            b_pos = info[6]
+            dists += [np.linalg.norm(np.array(a_pos)-np.array(b_pos))]
+        if len(dists) == 0:
+            return max_dist
+        else:
+            return min(dists)
+
+
+    def _check_obj_between_finger(self):
+        pos, quat = self._get_ee()
+        joint = self._get_gripper_joint()[0]
+        rayFrom = pos + quat2rot(quat)@np.array([0.015, joint, 0.15])
+        rayTo = pos + quat2rot(quat)@np.array([0.015, -joint, 0.15])
+        rayOutput1 = self._p.rayTest(
+            rayFrom,
+            rayTo,
+        )
+        rayOutput1 = [out for out in rayOutput1 if out[0] == self.obj_id]
+        # self._p.addUserDebugLine(
+        #             rayFrom, rayTo, lineColorRGB=[0,0.5,0.0], lineWidth=2
+        #         )
+        rayFrom = pos + quat2rot(quat)@np.array([-0.015, joint, 0.15])
+        rayTo = pos + quat2rot(quat)@np.array([-0.015, -joint, 0.15])
+        rayOutput2 = self._p.rayTest(
+            rayFrom,
+            rayTo,
+        )  # 1st hit for each ray
+        rayOutput2 = [out for out in rayOutput2 if out[0] == self.obj_id]
+        # print(len(rayOutput1), len(rayOutput2))
+        # self._p.addUserDebugLine(
+        #             rayFrom, rayTo, lineColorRGB=[0.5,0.0,0.0], lineWidth=2
+        #         )
+        return len(rayOutput1) > 0 and len(rayOutput2) > 0

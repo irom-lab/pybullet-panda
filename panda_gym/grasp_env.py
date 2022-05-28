@@ -1,4 +1,3 @@
-from abc import ABC
 import numpy as np
 import os
 from os.path import dirname
@@ -7,10 +6,9 @@ from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat
 
 
-class GraspEnv(BaseEnv, ABC):
+class GraspEnv(BaseEnv):
     def __init__(
         self,
-        task=None,
         renders=False,
         img_h=128,
         img_w=128,
@@ -41,7 +39,6 @@ class GraspEnv(BaseEnv, ABC):
                 'fail'.
         """
         super(GraspEnv, self).__init__(
-            task=task,
             renders=renders,
             img_h=img_h,
             img_w=img_w,
@@ -63,9 +60,17 @@ class GraspEnv(BaseEnv, ABC):
 
 
     @property
+    def state_dim(self):
+        """
+        Dimension of robot state - 3D + gripper
+        """
+        return 4
+
+
+    @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - x, y, yaw
         """
         return 3
 

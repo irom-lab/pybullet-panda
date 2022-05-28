@@ -1,23 +1,20 @@
-from abc import ABC
 import numpy as np
-import os
-from os.path import dirname
 
-from panda_gym.base_env import BaseEnv, normalize_action
-from alano.geometry.transform import quat2euler, euler2quat
-from alano.bullet.kinematics import full_jacob_pb
+from .util import normalize_action
+from panda_gym.base_env import BaseEnv
+from alano.geometry.transform import quat2euler
 
 
-class PushEnv(BaseEnv, ABC):
+class PushEnv(BaseEnv):
     def __init__(
         self,
         task=None,
         renders=False,
-        use_rgb=False,
-        use_depth=True,
+        use_rgb=True,
+        use_depth=False,
         #
-        mu=0.3,
-        sigma=0.01,
+        mu=0.5,
+        sigma=0.1,
         camera_params=None,
     ):
         """
@@ -35,34 +32,51 @@ class PushEnv(BaseEnv, ABC):
             use_depth=use_depth,
             camera_params=camera_params,
         )
+        self.obj_id = None
         self._mu = mu
         self._sigma = sigma
-
-        # Object id
-        self._obj_id_list = []
-        self._obj_initial_pos_list = {}
 
         # Continuous action space
         # self.action_low = np.array([-0.1, -0.3, -np.pi/4])
         # self.action_high = np.array([0.3, 0.3, np.pi/4])
-        self.action_low = np.array([-0.05, -0.1, -np.pi/4])
-        self.action_high = np.array([0.15, 0.1, np.pi/4])
+        self._action_low = np.array([-0.05, -0.1, -np.pi/4])
+        self._action_high = np.array([0.15, 0.1, np.pi/4])
         self._finger_open_pos = 0.0
 
         # Max object range
-        self.max_obj_yaw = np.pi/2
+        self._max_obj_yaw = np.pi/2
 
         # Max EE range
-        self.max_ee_x = [0.2, 0.8]
-        self.max_ee_y = [-0.3, 0.3]
+        self._max_ee_x = [0.2, 0.8]
+        self._max_ee_y = [-0.3, 0.3]
+
+
+    @property
+    def state_dim(self):
+        """
+        Dimension of robot state - x, y, yaw
+        """
+        return 3
 
 
     @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - x, y, yaw
         """
         return 3
+
+
+    @property
+    def state(self):
+        ee_pos, ee_orn = self._get_ee()
+        ee_yaw = quat2euler(ee_orn)[0:1]
+        return np.hstack((ee_pos[:2], ee_yaw))
+
+
+    def close_pb(self):
+        super().close_pb()
+        self.obj_id = None
 
 
     def reset_task(self, task):
@@ -70,12 +84,8 @@ class PushEnv(BaseEnv, ABC):
         Reset the task for the environment. Load object - task
         """
         # Clean table
-        for obj_id in self._obj_id_list:
-            self._p.removeBody(obj_id)
-
-        # Reset obj info
-        self._obj_id_list = []
-        self._obj_initial_pos_list = {}
+        if self.obj_id is not None:
+            self._p.removeBody(self.obj_id)
 
         # Reset robot
         # self.reset_arm_joints_ik([0.40, task['ee_y'], 0.18], euler2quat([0, 5*np.pi/6, 0]), gripper_closed=True)
@@ -88,7 +98,7 @@ class PushEnv(BaseEnv, ABC):
             self._p.GEOM_BOX, rgbaColor=[0.3,0.4,0.1,1.0], 
             halfExtents=task['obj_half_dim']
         )
-        obj_id = self._p.createMultiBody(
+        self.obj_id = self._p.createMultiBody(
             baseMass=task['obj_mass'],
             baseCollisionShapeIndex=box_collision_id,
             baseVisualShapeIndex=box_visual_id,
@@ -96,7 +106,6 @@ class PushEnv(BaseEnv, ABC):
             baseOrientation=self._p.getQuaternionFromEuler([0,0,task['obj_yaw']]),
             baseInertialFramePosition=task['obj_com_offset'],
         )
-        self._obj_id_list += [obj_id]
 
         # Set target - account for COM offset
         self.target_pos = np.array([0.70, task['obj_com_offset'][1]])
@@ -116,65 +125,8 @@ class PushEnv(BaseEnv, ABC):
             self._p.stepSimulation()
 
         # Record object initial pos
-        for obj_id in self._obj_id_list:
-            pos, _ = self._p.getBasePositionAndOrientation(obj_id)  # this returns COM, not geometric center!
-            self._obj_initial_pos_list[obj_id] = pos
-        self.initial_dist = np.linalg.norm(pos[:2] - self.target_pos)
-
-
-    def reset(self, task=None):
-        """
-        Reset the environment, including robot state, task, and obstacles.
-        Initialize pybullet client if 1st time.
-        """
-        if task is None:    # use default if not specified
-            task = self.task
-        self.task = task    # save task
-
-        if self._physics_client_id < 0:
-
-            # Initialize PyBullet instance
-            self.init_pb()
-
-            # Load table
-            plane_urdf_path =  os.path.join(dirname(dirname(__file__)), 
-                                            f'data/plane/plane.urdf')
-            self._plane_id = self._p.loadURDF(plane_urdf_path,
-                                              basePosition=[0, 0, -1],
-                                              useFixedBase=1)
-            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
-                                            f'data/table/table.urdf')
-            self._table_id = self._p.loadURDF(
-                table_urdf_path,
-                basePosition=[0.400, 0.000, -0.630 + 0.005],
-                baseOrientation=[0., 0., 0., 1.0],
-                useFixedBase=1)
-
-            # Set friction coefficient for table
-            self._p.changeDynamics(
-                self._table_id,
-                -1,
-                lateralFriction=self._mu,
-                spinningFriction=self._sigma,
-                frictionAnchor=1,
-            )
-
-            # Change color
-            self._p.changeVisualShape(self._table_id, -1,
-                                    rgbaColor=[0.7, 0.7, 0.7, 1.0])
-
-            # Reset object info
-            self._obj_id_list = []
-            self._obj_initial_pos_list = {}
-
-        # Load arm, no need to settle (joint angle set instantly)
-        self.reset_robot(self._mu, self._sigma, task['init_joint_angles'])
-        self.grasp(target_vel=0)
-
-        # Reset task - add object before arm down
-        self.reset_task(task)
-
-        return self._get_obs(self._camera_params)
+        self._obj_initial_pos, _ = self._p.getBasePositionAndOrientation(self.obj_id)  # this returns COM, not geometric center!
+        self.initial_dist = np.linalg.norm(self._obj_initial_pos[:2] - self.target_pos)
 
 
     def step(self, action):
@@ -185,7 +137,8 @@ class PushEnv(BaseEnv, ABC):
         Assume action in [x,y, yaw] velocity. Right now velocity control is instantaneous, not accounting for acceleration
         """
         # Extract action
-        norm_action = normalize_action(action, self.action_low, self.action_high)
+        norm_action = normalize_action(action, self._action_low, 
+                                               self._action_high)
         x_vel, y_vel, yaw_vel = norm_action
         target_lin_vel = [x_vel, y_vel, 0]
         target_ang_vel = [0, 0, yaw_vel]
@@ -196,12 +149,12 @@ class PushEnv(BaseEnv, ABC):
         ee_euler = quat2euler(ee_orn)
 
         # Check reward
-        obj_pos, obj_quat = self._p.getBasePositionAndOrientation(self._obj_id_list[-1])
-        obj_yaw = min(abs(quat2euler(obj_quat)[0]), self.max_obj_yaw)
+        obj_pos, obj_quat = self._p.getBasePositionAndOrientation(self.obj_id)
+        obj_yaw = min(abs(quat2euler(obj_quat)[0]), self._max_obj_yaw)
         dist = np.linalg.norm(obj_pos[:2] - self.target_pos)
         yaw_weight = 0.8
         dist_ratio = dist/self.initial_dist
-        yaw_ratio = obj_yaw/self.max_obj_yaw
+        yaw_ratio = obj_yaw/self._max_obj_yaw
         if dist_ratio < 0.2 and yaw_ratio < 0.2:
             reward = (1-dist_ratio/0.2)*(1-yaw_weight) + (1-yaw_ratio/0.2)*yaw_weight
         else:
@@ -209,8 +162,8 @@ class PushEnv(BaseEnv, ABC):
 
         # Check done - terminate early if ee out of bound, do not terminate even reaching the target
         done = False
-        if ee_pos[0] < self.max_ee_x[0] or ee_pos[0] > self.max_ee_x[1] \
-            or ee_pos[1] < self.max_ee_y[0] or ee_pos[1] > self.max_ee_y[1]:
+        if ee_pos[0] < self._max_ee_x[0] or ee_pos[0] > self._max_ee_x[1] \
+            or ee_pos[1] < self._max_ee_y[0] or ee_pos[1] > self._max_ee_y[1]:
             done = True
 
         # Return info

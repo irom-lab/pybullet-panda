@@ -1,4 +1,3 @@
-from abc import ABC
 import numpy as np
 
 from panda_gym.base_env import normalize_action
@@ -6,7 +5,7 @@ from panda_gym.grasp_mv_env import GraspMultiViewEnv
 from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2euler
 
 
-class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
+class GraspMultiViewRandomEnv(GraspMultiViewEnv):
     def __init__(
         self,
         task=None,
@@ -50,12 +49,22 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
         self.action_high = np.array(
                 [0.03, 0.03, -0.03, 30 * np.pi / 180, 15 * np.pi / 180, 15 * np.pi / 180])  #! TODO: tune
 
+
+    @property
+    def state_dim(self):
+        """
+        Dimension of robot state - 6D + gripper
+        """
+        return 7
+
+
     @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - 6D
         """
         return 6
+
 
     def reset_task(self, task):
         """
