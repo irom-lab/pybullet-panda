@@ -3,8 +3,8 @@
 	<link name="baseLink">
 		<inertial>
 			<origin rpy="0 0 0" xyz="0 0 0"/>
-				<mass value="0.1"/>
-				<inertia ixx="6e-4" ixy="0" ixz="0" iyy="6e-4" iyz="0" izz="6e-4"/>
+				<mass value="0.5"/>
+				<inertia ixx="3e-3" ixy="0" ixz="0" iyy="3e-3" iyz="0" izz="3e-3"/>
 		</inertial>
 		<visual>
 			<origin rpy="0 0 0" xyz="0 0 0"/>

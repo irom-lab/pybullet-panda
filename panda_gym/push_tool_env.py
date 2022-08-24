@@ -45,7 +45,7 @@ class PushToolEnv(PushEnv):
 
         # Load tool
         self._tool = Tool(self)
-        obj_id = self._tool.load(task)
+        obj_id = self._tool.load(task, mass=0.2)
         self.obj_id = obj_id
 
         # Record object initial pos

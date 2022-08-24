@@ -9,13 +9,13 @@
 		<visual>
 			<origin rpy="0 0 0" xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="peg_block.obj" scale="1 1 1"/>
+				<mesh filename="peg_block_small.obj" scale="2 1.5 1.5"/>
 			</geometry>
 		</visual>
 		<collision concave="yes">
 			<origin rpy="0 0 0" xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="peg_block.obj" scale="1 1 1"/>
+				<mesh filename="peg_block_small.obj" scale="2 1.5 1.5"/>
 			</geometry>
 		</collision>
 	</link>

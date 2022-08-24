@@ -1,14 +1,16 @@
 import numpy as np
 from pathlib import Path 
-import os
+import os, sys
 
-from .util import sample_uniform
+from .util import sample_uniform, suppress_stdout
 from alano.geometry.transform import euler2quat, quatMult
+
 
 class Tool():
     def __init__(self,
                  env,
-                 color=[1.0, 0.5, 0.3, 1.0],
+                color=[1.0, 0.5, 0.3, 1.0],
+                # color=np.array([164, 198, 219, 255])/255,
                 #  base_pos=[0.50, 0, 0],
                  ):
         self._env = env
@@ -16,7 +18,7 @@ class Tool():
         # self._base_pos = base_pos
 
 
-    def load(self, task):
+    def load(self, task, mass=2):
         env = self._env
         sim = self._env._p
 
@@ -38,13 +40,17 @@ class Tool():
         # Load urdf
         home_path = str(Path.home())
         obj_path = os.path.join(home_path, task['obj_path'])
-        obj_id = sim.loadURDF(
-            obj_path,
-            basePosition=obj_pos_base,
-            baseOrientation=obj_quat, 
-            globalScaling=task['obj_scaling'],
-            # flags=sim.URDF_MERGE_FIXED_LINKS,
-        )
+        with suppress_stdout():
+            obj_id = sim.loadURDF(
+                obj_path,
+                basePosition=obj_pos_base,
+                baseOrientation=obj_quat, 
+                globalScaling=task['obj_scaling'],
+                flags=sim.URDF_MERGE_FIXED_LINKS,   #!
+            )   # only 1 link now
+
+        # Change mass for whole tool
+        sim.changeDynamics(obj_id, -1, mass=mass)
         # print(sim.getDynamicsInfo(obj_id, -1))
 
         # Change mass

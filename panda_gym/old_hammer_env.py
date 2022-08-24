@@ -16,8 +16,8 @@ class HammerEnv(BaseEnv):
         use_rgb=True,
         use_depth=False,
         #
-        mu=0.5, #!
-        sigma=0.05,
+        mu=0.3,
+        sigma=0.01,
         camera_params=None,
     ):
         super(HammerEnv, self).__init__(
@@ -34,21 +34,19 @@ class HammerEnv(BaseEnv):
         self._sigma = sigma
 
         # Continuous action space
-        self._action_low = np.array([-0.2, -0.2, -0.2, -np.pi/4])   #!
+        self._action_low = np.array([-0.2, -0.2, -0.2, -np.pi/4])
         self._action_high = np.array([0.2, 0.2, 0.2, np.pi/4])
-        self._max_finger_force = 100    #!
-        self._finger_close_vel = -0.50
 
         # Grasping threshold
-        self._grasp_threshold = 0.008
+        self._grasp_threshold = 0.01
         self._regrasp_threshold = 0.05  # gripper reopens if tip above the threshold and object not grasped
         self._obj_max_dist = 0.2
-        self._lift_target = 0.05 # should be the same height as peg
+        self._lift_threshold = 0.1
         
         # Peg
         self._peg_max_dist = 0.3
-        self._peg_contact_margin = 0.002 # if panda and peg within margin, no reward
-        self._peg_max_depth = 0.13
+        self._peg_contact_margin = 0.02 # if panda and peg within margin, no reward
+        self._peg_max_depth = 0.18
 
         # Max EE range
         self._max_ee_x = [0.2, 0.8]
@@ -63,7 +61,7 @@ class HammerEnv(BaseEnv):
         """
         Dimension of robot state - x, y, z, roll, pitch, yaw, gripper
         """
-        return 8
+        return 7
 
 
     @property
@@ -78,9 +76,7 @@ class HammerEnv(BaseEnv):
     def state(self):
         ee_pos, ee_orn = self._get_ee()
         ee_euler = quat2euler(ee_orn)
-        peg_depth = self.get_peg_depth()
-        peg_depth_ratio = (peg_depth + self._peg_max_depth) / (self.initial_peg_depth + self._peg_max_depth)
-        return np.hstack((ee_pos, ee_euler, self._get_gripper_joint()[0:1], peg_depth_ratio))
+        return np.hstack((ee_pos, ee_euler, self._get_gripper_joint()[0:1]))
 
 
     def close_pb(self):
@@ -125,27 +121,27 @@ class HammerEnv(BaseEnv):
             block_urdf_path =  os.path.join(dirname(dirname(__file__)), 
                                             f'data/peg_block/peg_block.urdf')
             self.block_id = self._p.loadURDF(block_urdf_path, 
-                                        basePosition=[0.50, -0.10, 0], 
-                                        baseOrientation=[0, 0, 0.707, 0.707],
+                                        basePosition=[0.50, -0.05, 0], 
+                                        baseOrientation=[0, 0, 0.707, 0.707], 
                                         useFixedBase=1,
                                         )
-
         if self.peg_id is None:
             peg_urdf_path = os.path.join(dirname(dirname(__file__)), 
                                             # f'data/peg/peg_new.urdf')
-                                            f'data/peg/peg_prim_new.urdf')
+                                            f'data/peg/peg_prim.urdf')
             with suppress_stdout():
                 self.peg_id = self._p.loadURDF(peg_urdf_path, 
-                                            basePosition=[0.50, -0.11, 0.06], 
+                                            basePosition=[0.50, -0.06, 0.1], 
                                             # baseOrientation=[0, 0, 0.707, 0.707],
                                             baseOrientation=self._p.getQuaternionFromEuler([1.57,0,0]),
-                                            # globalScaling=1.0,
+                                            # globalScaling=0.95,
+                                            globalScaling=1.0,
                                             flags=self._p.URDF_MERGE_FIXED_LINKS,
                                             )
 
             # Change color
             self._p.changeVisualShape(self.block_id, -1,    # wood
-                                    rgbaColor=[0.8, 0.6, 0.4, 1.0])
+                                    rgbaColor=[0.8, 0.6, 0.4, 0.2])
             self._p.changeVisualShape(self.peg_id, -1,
                                     rgbaColor=[0.6, 0.6, 0.6, 1.0])
             self._p.changeVisualShape(self.peg_id, 0,
@@ -153,29 +149,30 @@ class HammerEnv(BaseEnv):
 
             # Add resistance to peg
             self._p.changeDynamics(self.peg_id, -1,
-                                    lateralFriction=5.0,
-                                    spinningFriction=1.0,
+                                    lateralFriction=1.0,
+                                    spinningFriction=0.1,
                                     frictionAnchor=1,
                                     # collisionMargin=0.0001
                                 )
             self._p.changeDynamics(self.peg_id, 0,
-                                    lateralFriction=5.0,
-                                    spinningFriction=1.0,
+                                    lateralFriction=1.0,
+                                    spinningFriction=0.1,
                                     frictionAnchor=1,
                                     # collisionMargin=0.0001
                                 )
             self._p.changeDynamics(self.block_id, -1,
-                                    lateralFriction=5.0,
-                                    spinningFriction=1.0,
+                                    lateralFriction=1.0,
+                                    spinningFriction=0.1,
                                     frictionAnchor=1,
                                 )
+
         else:
             self._p.resetBasePositionAndOrientation(self.peg_id,
-                                        posObj=[0.50, -0.11, 0.06], 
+                                        posObj=[0.50, -0.06, 0.1], 
                                         ornObj=self._p.getQuaternionFromEuler([1.57,0,0]))
-
-        # Record initial dist to target
-        self.initial_lift_dist = np.linalg.norm(pos[2]-self._lift_target)
+        
+        # while 1:
+        #     self._p.stepSimulation()
 
         # Record initial dist to peg
         self.initial_peg_dist = self._get_min_dist_between_obj(self.obj_id, 
@@ -186,16 +183,12 @@ class HammerEnv(BaseEnv):
         self.initial_peg_depth = self.get_peg_depth()
 
         # Flags
-        # self._lift_reached = False
-        self._peg_reached = False   # no peg depth reward until tool contacted peg
+        self._lift_reached = False
+        self._peg_reached = False
 
 
     def get_peg_depth(self):
         return self._p.getBasePositionAndOrientation(self.peg_id)[0][1]
-
-
-    def get_peg_height(self):
-        return self._p.getBasePositionAndOrientation(self.peg_id)[0][2]
 
 
     def reset(self, task=None):
@@ -208,11 +201,10 @@ class HammerEnv(BaseEnv):
         self.task = task    # save task
         # task['init_joint_angles'] = joint_poses
         init_x = self.rng.random()*0.10 + 0.45  # [0.45, 0.55]
-        init_y = self.rng.random()*0.05 + 0.15  # [0.15, 0.20]
-        init_z = self.rng.random()*0.05 + 0.30  # [0.30, 0.35]
+        init_y = self.rng.random()*0.10 + 0.10  # [0.10, 0.20]
         init_yaw = self.rng.random()*2*np.pi/2 + -np.pi/2
         self.init_quat = euler2quat([np.pi+init_yaw, np.pi, 0])
-        task['init_pose'] = [init_x, init_y, init_z] + \
+        task['init_pose'] = [init_x, init_y, 0.30] + \
                             list(self.init_quat)    # 0.155
         task['initial_finger_vel'] = self._finger_open_vel  # keep finger open
         return super().reset(task)
@@ -238,6 +230,11 @@ class HammerEnv(BaseEnv):
                       target_ang_vel, 
                       num_steps=48,
                       apply_grasp_threshold=self._grasp_threshold,
+                    #   init_quat=self.init_quat,
+                    #   max_roll=self._max_ee_roll,
+                    #   max_pitch=self._max_ee_pitch,
+                    #   max_roll_vel=self._action_high[3],
+                    #   max_pitch_vel=self._action_high[4]
                       )  # 5Hz
 
         # Check EE
@@ -253,35 +250,28 @@ class HammerEnv(BaseEnv):
         reward = max(0, 1-dist_radio)*0.1
 
         if self._check_hold_object(self.obj_id):
+            # Reward - lifting
+            if tool_pos[-1] > self._lift_threshold and not self._lift_reached:
+                reward += 0.5
+                self._lift_reached = True
 
             # Reward - approaching peg after grasping
             peg_dist = self._get_min_dist_between_obj(self.obj_id, 
                                                       self.peg_id, 
-                                                      max_dist=self._peg_max_dist)
+                                                    max_dist=self._peg_max_dist)
             peg_dist_ratio = peg_dist/self.initial_peg_dist
-            reward += max(0, 1-peg_dist_ratio)*0.2
-
-            # Also reward for lifting
-            z_dist = np.linalg.norm(tool_pos[2] - self._lift_target)
-            z_dist_ratio = z_dist/self.initial_lift_dist
-            reward += max(0, 1-z_dist_ratio)*0.5
-            
-            # Check if tool contacts peg
-            # if not self._peg_reached and peg_dist_ratio < 0.2:
-            #     self._peg_reached = True
+            if peg_dist_ratio < 0.05 and not self._peg_reached:
+                reward += 0.5
+                self._peg_reached = True
 
             # Reward - peg moving, and arm not touching peg - block is rigid so okay if arm touches block
-            peg_panda_dist = self._get_min_dist_between_obj(self.peg_id, self._panda_id, max_dist=self._peg_contact_margin)
-            peg_height = self.get_peg_height()
-            # if peg_panda_dist >= self._peg_contact_margin and self._peg_reached and peg_height > 0.04:
-            if peg_panda_dist >= self._peg_contact_margin and peg_height > 0.04:
+            if self._get_min_dist_between_obj(self.peg_id, self._panda_id, max_dist=self._peg_contact_margin) >= self._peg_contact_margin: 
                 peg_depth = self.get_peg_depth()
                 peg_depth_ratio = (peg_depth + self._peg_max_depth) / (self.initial_peg_depth + self._peg_max_depth)
                 if 1-peg_depth_ratio > 0.01:
-                    reward += max(0, 1-peg_depth_ratio)*1
-
-            # elif peg_panda_dist < self._peg_contact_margin or peg_height < 0.05:
-            #     reward -= 0.05
+                    reward += max(0, 1-peg_depth_ratio)*0.5
+            else:
+                reward -= 0.3
 
         # Check done - terminate early if ee out of bound, do not terminate even reaching the target
         done = False
@@ -302,12 +292,12 @@ class HammerEnv(BaseEnv):
         obs_overhead = self.get_overhead_obs(camera_params)  # uint8
 
         camera_params_aux = {}
-        camera_params_aux['pos'] = [0.10, 0.40, 0.20]
-        camera_params_aux['euler'] = [0, -1.8, 2.5]
+        camera_params_aux['pos'] = [0.4, 0.6, 0.20]
+        camera_params_aux['euler'] = [0, -1.8, 1.8]
         camera_params_aux['img_h'] = 128
         camera_params_aux['img_w'] = 128
         camera_params_aux['aspect'] = 1
-        camera_params_aux['fov'] = 70
+        camera_params_aux['fov'] = 60
         camera_params_aux['overhead_min_depth'] = 0.3
         camera_params_aux['overhead_max_depth'] = 0.8
 

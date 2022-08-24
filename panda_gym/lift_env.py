@@ -91,7 +91,7 @@ class LiftEnv(BaseEnv):
 
         # Load tool
         self._tool = Tool(self)
-        self.obj_id = self._tool.load(task)
+        self.obj_id = self._tool.load(task, mass=0.2)
 
         # Record object initial pos
         pos, quat = self._tool.get_pose()  # this returns COM, not geometric center!

@@ -33,12 +33,8 @@ class SweepEnv(BaseEnv):
         self._sigma = sigma
 
         # Continuous action space
-        self._action_low = np.array([-0.1, -0.1, -0.1, 
-                                    # -np.pi/4, -np.pi/4, 
-                                    -np.pi/4])
-        self._action_high = np.array([0.1, 0.1, 0.1, 
-                                    #  np.pi/4, np.pi/4, 
-                                     np.pi/4])
+        self._action_low = np.array([-0.2, -0.2, -0.2, -np.pi/4])
+        self._action_high = np.array([0.2, 0.2, 0.2, np.pi/4])
 
         # Grasping threshold
         self._grasp_threshold = 0.01
@@ -49,7 +45,10 @@ class SweepEnv(BaseEnv):
         # Cylinder
         self._cylinder_max_dist = 0.4
         self._cylinder_contact_margin = 0.02 # if panda and cylinder within margin, no reward
-        self._cylinder_target_x = 0.75
+        # self._cylinder_target_x = 0.80
+        self._cylinder_target_y = -0.40
+        # self._cylinder_init_pos = [0.55, -0.15, 0.1]
+        self._cylinder_init_pos = [0.50, 0, 0.1]
 
         # Max EE range
         self._max_ee_x = [0.2, 0.8]
@@ -123,15 +122,15 @@ class SweepEnv(BaseEnv):
                 rgbaColor=[0.6, 0.6, 0.6, 1.0], 
             )
             self.cylinder_id = self._p.createMultiBody(
-                baseMass=0.3,
+                baseMass=5, #!
                 baseCollisionShapeIndex=cylinder_collision_id,
                 baseVisualShapeIndex=cylinder_visual_id,
-                basePosition=[0.55, -0.15, 0.1],
+                basePosition=self._cylinder_init_pos,
                 baseOrientation=[0, 0, 0, 1],
             )
         else:
             self._p.resetBasePositionAndOrientation(self.cylinder_id,
-                                        posObj=[0.55, -0.15, 0.1], 
+                                        posObj=self._cylinder_init_pos, 
                                         ornObj=[0, 0, 0, 1])
 
         # Record initial distance to cylinder
@@ -141,7 +140,8 @@ class SweepEnv(BaseEnv):
                                             max_dist=self._cylinder_max_dist)
 
         # Record initial distance to target
-        self.initial_target_dist = self._cylinder_target_x - 0.55
+        # self.initial_target_dist = np.abs(self._cylinder_target_x - self._cylinder_init_pos[0])
+        self.initial_target_dist = np.abs(self._cylinder_target_y - self._cylinder_init_pos[1])
 
 
     def reset(self, task=None):
@@ -153,9 +153,9 @@ class SweepEnv(BaseEnv):
             task = self.task
         self.task = task    # save task
         # task['init_joint_angles'] = joint_poses
-        init_x = self.rng.random()*0.0 + 0.50
-        init_y = self.rng.random()*0.0 + 0.15
-        init_yaw = 0*self.rng.random()*np.pi + 0
+        init_x = self.rng.random()*0.10 + 0.45  # [0.45, 0.55]
+        init_y = self.rng.random()*0.10 + 0.10  # [0.10, 0.20]
+        init_yaw = self.rng.random()*2*np.pi/2 + -np.pi/2
         self.init_quat = euler2quat([np.pi+init_yaw, np.pi, 0])
         task['init_pose'] = [init_x, init_y, 0.30] + \
                             list(self.init_quat)    # 0.155
@@ -206,24 +206,27 @@ class SweepEnv(BaseEnv):
         reward = max(0, 1-dist_radio)*0.1
 
         if self._check_hold_object(self.tool_id):
+
             # Reward - lifting
-            if tool_pos[-1] > self._lift_threshold:
-                reward += 0.1
+            # if tool_pos[-1] > self._lift_threshold:
+            #     reward += 0.2
 
             # Reward - approaching cylinder after grasping
             cylinder_dist = self._get_min_dist_between_obj(self.tool_id, 
                                                       self.cylinder_id, 
-                                            max_dist=self._cylinder_max_dist)
+                                                      max_dist=self._cylinder_max_dist)
             cylinder_dist_ratio = cylinder_dist/self.initial_cylinder_dist
-            # reward += max(0, 1-cylinder_dist_ratio)
             if cylinder_dist_ratio < 0.3:
                 reward += 0.1
 
             # Reward - cylinder moving to target, and arm not touching cylinder
             if self._get_min_dist_between_obj(self.cylinder_id, self._panda_id, max_dist=self._cylinder_contact_margin) >= self._cylinder_contact_margin: 
-                target_dist = np.abs(self._cylinder_target_x - cylinder_pos[0])
+                # target_dist = np.abs(self._cylinder_target_x - cylinder_pos[0])
+                target_dist = np.abs(self._cylinder_target_y - cylinder_pos[1])
                 target_dist_ratio = target_dist/self.initial_target_dist
                 reward += max(0, 1-target_dist_ratio)
+            else:
+                reward -= 0.3
 
         # Check done - terminate early if ee out of bound, do not terminate even reaching the target
         done = False
@@ -242,5 +245,19 @@ class SweepEnv(BaseEnv):
     def _get_obs(self, camera_params):
         # obs_wrist = self.get_wrist_obs(camera_params)  # uint8
         obs_overhead = self.get_overhead_obs(camera_params)  # uint8
+
+        camera_params_aux = {}
+        camera_params_aux['pos'] = [0.4, 0.6, 0.20]  
+        camera_params_aux['euler'] = [0, -1.8, 1.8]
+        camera_params_aux['img_h'] = 128
+        camera_params_aux['img_w'] = 128
+        camera_params_aux['aspect'] = 1
+        camera_params_aux['fov'] = 60
+        camera_params_aux['overhead_min_depth'] = 0.3
+        camera_params_aux['overhead_max_depth'] = 0.8
+
+        obs_aux = self.get_overhead_obs(camera_params_aux)  # uint8
+        return np.vstack((obs_overhead, obs_aux))
+
         # return np.vstack((obs_wrist, obs_overhead))
-        return obs_overhead
+        # return obs_overhead
