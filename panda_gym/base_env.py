@@ -10,7 +10,7 @@ import pybullet as p
 from pybullet_utils import bullet_client as bc
 from collections import deque
 
-from alano.geometry.camera import rgba2rgb
+from .util import rgba2rgb
 from alano.geometry.transform import quat2rot, euler2quat, quatMult, log_rot, quatInverse, quat2euler
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
