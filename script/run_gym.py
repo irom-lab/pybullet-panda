@@ -12,9 +12,10 @@ from shutil import copyfile
 
 # AGENT
 from agent.agent_grasp_mv import AgentGraspMV
+from agent.agent_push import AgentPush
 
 # ENV
-from panda_gym.vec_env_grasp_mv import VecEnvGraspMV, VecEnvGraspMVRandom
+from panda_gym.vec_env.vec_env import VecEnvGraspMV, VecEnvGraspMVRandom, VecEnvPush
 from alano.train.vec_env import make_vec_envs
 from alano.utils.yaml import load_config
 
@@ -46,6 +47,8 @@ def main(config_file, config_dict):
         vec_env_type = VecEnvGraspMV
     elif CONFIG_ENV.ENV_NAME == 'GraspMultiViewRandom-v0':
         vec_env_type = VecEnvGraspMVRandom
+    elif CONFIG_ENV.ENV_NAME == 'Push-v0':
+        vec_env_type = VecEnvPush
     else:
         raise NotImplementedError
     venv = make_vec_envs(
@@ -55,13 +58,10 @@ def main(config_file, config_dict):
         device=CONFIG_TRAINING.DEVICE,
         config_env=CONFIG_ENV,
         vec_env_type=vec_env_type,
-        max_steps_train=CONFIG_ENV.MAX_TRAIN_STEPS,
-        max_steps_eval=CONFIG_ENV.MAX_EVAL_STEPS,
         renders=CONFIG_ENV.RENDER,
-        img_h=CONFIG_ENV.IMG_H,
-        img_w=CONFIG_ENV.IMG_W,
         use_rgb=CONFIG_ENV.USE_RGB,
         use_depth=CONFIG_ENV.USE_DEPTH,
+        camera_params=CONFIG_ENV.CAMERA,
     )
     # venv.reset()
 
@@ -69,6 +69,8 @@ def main(config_file, config_dict):
     print("\n== Agent Information ==")
     if CONFIG_TRAINING.AGENT_NAME == 'AgentGraspMV':
         agent_class = AgentGraspMV
+    elif CONFIG_TRAINING.AGENT_NAME == 'AgentPush':
+        agent_class = AgentPush
     else:
         raise NotImplementedError
     agent = agent_class(CONFIG_TRAINING, CONFIG_UPDATE, CONFIG_ARCH,
@@ -89,6 +91,8 @@ def main(config_file, config_dict):
 
 
 if __name__ == "__main__":
+    import time
+    s1 = time.time()
     parser = argparse.ArgumentParser()
     parser.add_argument("-cf",
                         "--config_file",
@@ -97,3 +101,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config_dict = load_config(args.config_file)
     main(args.config_file, config_dict)
+    print('Time used: ', time.time()-s1)

@@ -1,29 +1,21 @@
-from abc import ABC
 import numpy as np
-import math
 
 from panda_gym.base_env import normalize_action
 from panda_gym.grasp_mv_env import GraspMultiViewEnv
 from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2euler
 
 
-
-class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
+class GraspMultiViewRandomEnv(GraspMultiViewEnv):
     def __init__(
         self,
         task=None,
         renders=False,
-        img_h=128,
-        img_w=128,
         use_rgb=False,
         use_depth=True,
-        max_steps_train=100,
-        max_steps_eval=100,
-        done_type='fail',
         #
         mu=0.5,
         sigma=0.03,
-        # camera_params=None,
+        camera_params=None,
     ):
         """
         Args:
@@ -44,15 +36,11 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
         super(GraspMultiViewRandomEnv, self).__init__(
             task=task,
             renders=renders,
-            img_h=img_h,
-            img_w=img_w,
             use_rgb=use_rgb,
             use_depth=use_depth,
-            max_steps_train=max_steps_train,
-            max_steps_eval=max_steps_eval,
-            done_type=done_type,
             mu=mu,
             sigma=sigma,
+            camera_params=camera_params
         )
 
         # Overrding
@@ -61,12 +49,22 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
         self.action_high = np.array(
                 [0.03, 0.03, -0.03, 30 * np.pi / 180, 15 * np.pi / 180, 15 * np.pi / 180])  #! TODO: tune
 
+
+    @property
+    def state_dim(self):
+        """
+        Dimension of robot state - 6D + gripper
+        """
+        return 7
+
+
     @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - 6D
         """
         return 6
+
 
     def reset_task(self, task):
         """
@@ -173,10 +171,10 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
             euler2quat([delta_yaw, delta_pitch, delta_roll]), ee_quat)
         ee_euler_nxt = quat2euler(ee_quat_nxt)
         collision_obj_id_list = None
-        self.move(absolute_pos=ee_pos_nxt,
-                  absolute_global_quat=ee_quat_nxt,
-                  num_steps=150,
-                  collision_obj_id_list=collision_obj_id_list)
+        self.move_pose(absolute_pos=ee_pos_nxt,
+                        absolute_global_quat=ee_quat_nxt,
+                        num_steps=150,
+                        collision_obj_id_list=collision_obj_id_list)
 
         # Check if object moved or gripper rolled or pitched, meaning contact happened
         # flag_obj_move = False
@@ -199,14 +197,13 @@ class GraspMultiViewRandomEnv(GraspMultiViewEnv, ABC):
         # Grasp if last step, and then lift
         if self.step_elapsed == self.max_steps:
             self.grasp(target_vel=-0.10)  # close
-            self.move(
-                ee_pos_nxt,  # keep for some time
-                absolute_global_quat=ee_quat_nxt,
-                num_steps=150)
+            self.move_pose(ee_pos_nxt,  # keep for some time
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=150)
             ee_pos_nxt[2] += 0.1
-            self.move(ee_pos_nxt,
-                      absolute_global_quat=ee_quat_nxt,
-                      num_steps=150)
+            self.move_pose(ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=150)
         else:
             self.grasp(target_vel=0.10)  # open
 

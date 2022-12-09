@@ -1,18 +1,14 @@
-from abc import ABC
 import numpy as np
-import pybullet_data
+import os
+from os.path import dirname
 
 from panda_gym.base_env import BaseEnv
-from alano.geometry.transform import quatMult, euler2quat, quat2rot, log_rot
-from alano.geometry.scaling import traj_time_scaling
-from alano.bullet.kinematics import full_jacob_pb
-from alano.geometry.camera import rgba2rgb
+from alano.geometry.transform import quatMult, euler2quat
 
 
-class GraspEnv(BaseEnv, ABC):
+class GraspEnv(BaseEnv):
     def __init__(
         self,
-        task=None,
         renders=False,
         img_h=128,
         img_w=128,
@@ -43,7 +39,6 @@ class GraspEnv(BaseEnv, ABC):
                 'fail'.
         """
         super(GraspEnv, self).__init__(
-            task=task,
             renders=renders,
             img_h=img_h,
             img_w=img_w,
@@ -59,17 +54,26 @@ class GraspEnv(BaseEnv, ABC):
         # Object id
         self._obj_id_list = []
         self._obj_initial_pos_list = {}
-        self._urdf_root = pybullet_data.getDataPath()
 
         # Camera info
         self._camera_params = camera_params
 
+
+    @property
+    def state_dim(self):
+        """
+        Dimension of robot state - 3D + gripper
+        """
+        return 4
+
+
     @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - x, y, yaw
         """
         return 3
+
 
     @property
     def init_joint_angles(self):
@@ -81,26 +85,6 @@ class GraspEnv(BaseEnv, ABC):
             self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
         ]
 
-    @property
-    def up_joint_angles(self):
-        """[0.5, 0, 0.5], straight down - avoid mug hitting gripper when dropping
-        """
-        return [0, 1.643, 0, 1.167, 0, 0.476, 0.785, 0, 0,
-            self._finger_open_pos, 0.00, self._finger_open_pos, 0.00
-        ]
-
-
-    def report(self):
-        """
-        Print information of robot dynamics and observation.
-        """
-        raise NotImplementedError
-
-    def visualize(self):
-        """
-        Visualize trajectories and value functions.
-        """
-        raise NotImplementedError
 
     def reset_task(self, task):
         """
@@ -143,11 +127,15 @@ class GraspEnv(BaseEnv, ABC):
             self.init_pb()
 
             # Load table
-            self._plane_id = self._p.loadURDF(self._urdf_root + '/plane.urdf',
+            plane_urdf_path =  os.path.join(dirname(dirname(__file__)), 
+                                            f'data/plane/plane.urdf')
+            self._plane_id = self._p.loadURDF(plane_urdf_path,
                                               basePosition=[0, 0, -1],
                                               useFixedBase=1)
+            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
+                                            f'data/table/table.urdf')
             self._table_id = self._p.loadURDF(
-                self._urdf_root + '/table/table.urdf',
+                table_urdf_path,
                 basePosition=[0.400, 0.000, -0.630 + 0.005],
                 baseOrientation=[0., 0., 0., 1.0],
                 useFixedBase=1)
@@ -185,6 +173,7 @@ class GraspEnv(BaseEnv, ABC):
 
         return self._get_obs(self._camera_params)
 
+
     def step(self, action):
         """
         Gym style step function. Apply action, move robot, get observation,
@@ -207,11 +196,11 @@ class GraspEnv(BaseEnv, ABC):
         for _ in range(3):
             self.reset_arm_joints_ik(ee_pos_before, ee_orn)
             self._p.stepSimulation()
-        self.move(ee_pos, absolute_global_quat=ee_orn, num_steps=300)
+        self.move_pose(ee_pos, absolute_global_quat=ee_orn, num_steps=300)
         self.grasp(target_vel=-0.10)  # always close gripper
-        self.move(ee_pos, absolute_global_quat=ee_orn,
+        self.move_pose(ee_pos, absolute_global_quat=ee_orn,
                   num_steps=100)  # keep pose until gripper closes
-        self.move(ee_pos_after, absolute_global_quat=ee_orn,
+        self.move_pose(ee_pos_after, absolute_global_quat=ee_orn,
                   num_steps=150)  # lift
 
         # Check if all objects removed
@@ -221,6 +210,7 @@ class GraspEnv(BaseEnv, ABC):
         else:
             reward = 0
         return self._get_obs(self._camera_params), reward, True, {}
+
 
     def clear_obj(self, thres=0.03):
         height = []
@@ -236,170 +226,6 @@ class GraspEnv(BaseEnv, ABC):
             self._obj_id_list.remove(obj_id)
         return len(obj_to_be_removed)
 
+
     def _get_obs(self, camera_params):
-        far = 1000.0
-        near = 0.01
-        camera_pos = camera_params['pos']
-        rot_matrix = quat2rot(camera_params['quat'])
-        init_camera_vector = (0, 0, 1)  # z-axis
-        init_up_vector = (1, 0, 0)  # x-axis
-        camera_vector = rot_matrix.dot(init_camera_vector)
-        up_vector = rot_matrix.dot(init_up_vector)
-
-        view_matrix = self._p.computeViewMatrix(
-            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
-        projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_params['camera_fov'],
-            aspect=camera_params['aspect'],
-            nearVal=near,
-            farVal=far)
-
-        _, _, rgb, depth, _ = self._p.getCameraImage(
-            camera_params['img_w'],
-            camera_params['img_h'],
-            view_matrix,
-            projection_matrix,
-            flags=self._p.ER_NO_SEGMENTATION_MASK)
-        out = []
-        if self.use_depth:
-            depth = far * near / (far - (far - near) * depth)
-            depth = (camera_params['max_depth'] - depth) / camera_params['max_depth']
-            depth = depth.clip(min=0., max=1.)
-            depth = np.uint8(depth * 255)
-            out += [depth[np.newaxis]]
-        if self.use_rgb:
-            rgb = rgba2rgb(rgb).transpose(2, 0, 1)
-            out += [rgb]
-        out = np.concatenate(out)
-        return out  # uint8
-
-    def move(
-        self,
-        absolute_pos=None,
-        relative_pos=None,
-        absolute_global_euler=None,  # preferred
-        relative_global_euler=None,  # preferred
-        relative_local_euler=None,  # not using
-        absolute_global_quat=None,  # preferred
-        relative_azi=None,  # for arm
-        # relative_quat=None,  # never use relative quat
-        num_steps=50,
-        max_joint_vel=0.20,
-        pos_gain=20,
-        vel_gain=5,
-        collision_force_threshold=0,
-    ):
-
-        # Get trajectory
-        ee_pos, ee_quat = self._get_ee()
-
-        # Determine target pos
-        if absolute_pos is not None:
-            target_pos = absolute_pos
-        elif relative_pos is not None:
-            target_pos = ee_pos + relative_pos
-        else:
-            target_pos = ee_pos
-
-        # Determine target orn
-        if absolute_global_euler is not None:
-            target_orn = euler2quat(absolute_global_euler)
-        elif relative_global_euler is not None:
-            target_orn = quatMult(euler2quat(relative_global_euler), ee_quat)
-        elif relative_local_euler is not None:
-            target_orn = quatMult(ee_quat, euler2quat(relative_local_euler))
-        elif absolute_global_quat is not None:
-            target_orn = absolute_global_quat
-        elif relative_azi is not None:
-            # Extrinsic yaw
-            target_orn = quatMult(euler2quat([relative_azi[0], 0, 0]), ee_quat)
-            # Intrinsic pitch
-            target_orn = quatMult(target_orn,
-                                  euler2quat([0, relative_azi[1], 0]))
-        # elif relative_quat is not None:
-        # 	target_orn = quatMult(ee_quat, relative_quat)
-        else:
-            target_orn = np.array([1.0, 0., 0., 0.])
-
-        # Get trajectory
-        traj_pos = traj_time_scaling(start_pos=ee_pos,
-                                     end_pos=target_pos,
-                                     num_steps=num_steps)
-
-        # Run steps
-        collision = False
-        num_steps = len(traj_pos)
-        for step in range(num_steps):
-
-            # Get joint velocities from error tracking control, takes 0.2ms
-            joint_dot = self.traj_tracking_vel(target_pos=traj_pos[step],
-                                               target_quat=target_orn,
-                                               pos_gain=pos_gain,
-                                               vel_gain=vel_gain)
-
-            # Send velocity commands to joints
-            for i in range(self._num_joint_arm):
-                self._p.setJointMotorControl2(self._panda_id,
-                                              i,
-                                              self._p.VELOCITY_CONTROL,
-                                              targetVelocity=joint_dot[i],
-                                              force=self._max_joint_force[i],
-                                              maxVelocity=max_joint_vel)
-
-            # Keep gripper current velocity
-            self._p.setJointMotorControl2(self._panda_id,
-                                          self._left_finger_joint_id,
-                                          self._p.VELOCITY_CONTROL,
-                                          targetVelocity=self._finger_cur_vel,
-                                          force=self._max_finger_force,
-                                          maxVelocity=0.10)
-            self._p.setJointMotorControl2(self._panda_id,
-                                          self._right_finger_joint_id,
-                                          self._p.VELOCITY_CONTROL,
-                                          targetVelocity=self._finger_cur_vel,
-                                          force=self._max_finger_force,
-                                          maxVelocity=0.10)
-
-            # Check contact
-            if collision_force_threshold > 0:
-                fm = np.array(self._p.getJointState(self._panda_id, self._ee_joint_id)[2])
-                if np.any(fm[:3] > collision_force_threshold):
-                    collision = True
-
-            # Step simulation, takes 1.5ms
-            self._p.stepSimulation()
-        return collision
-
-    def traj_tracking_vel(self,
-                          target_pos,
-                          target_quat,
-                          pos_gain=20,
-                          vel_gain=5):  #Change gains based off mouse
-        ee_pos, ee_quat = self._get_ee()
-
-        ee_pos_error = target_pos - ee_pos
-        # ee_orn_error = log_rot(quat2rot(target_quat)@(quat2rot(ee_quat).T))  # in spatial frame
-        ee_orn_error = log_rot(
-            quat2rot(target_quat).dot(
-                (quat2rot(ee_quat).T)))  # in spatial frame
-
-        joint_poses = list(
-            np.hstack((self._get_arm_joints(), np.array([0, 0]))))  # add fingers
-        ee_state = self._p.getLinkState(self._panda_id,
-                                        self._ee_link_id,
-                                        computeLinkVelocity=1,
-                                        computeForwardKinematics=1)
-        # Get the Jacobians for the CoM of the end-effector link. Note that in this example com_rot = identity, and we would need to use com_rot.T * com_trn. The localPosition is always defined in terms of the link frame coordinates.
-        zero_vec = list(np.zeros_like(joint_poses))
-        jac_t, jac_r = self._p.calculateJacobian(
-            self._panda_id, self._ee_link_id, ee_state[2], joint_poses,
-            zero_vec, zero_vec)  # use localInertialFrameOrientation
-        jac_sp = full_jacob_pb(
-            jac_t, jac_r)[:, :7]  # 6x10 -> 6x7, ignore last three columns
-        try:
-            joint_dot = np.linalg.pinv(jac_sp).dot((np.hstack(
-                (pos_gain * ee_pos_error,
-                 vel_gain * ee_orn_error)).reshape(6, 1)))  # pseudo-inverse
-        except np.linalg.LinAlgError:
-            joint_dot = np.zeros((7, 1))
-        return joint_dot
+        return self.get_overhead_obs(camera_params)

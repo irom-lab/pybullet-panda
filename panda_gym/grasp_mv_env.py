@@ -1,27 +1,20 @@
-from abc import ABC
 import numpy as np
 
-from panda_gym.base_env import normalize_action
+from .util import normalize_action
 from panda_gym.grasp_env import GraspEnv
-from alano.geometry.transform import quatMult, euler2quat, euler2quat, quat2rot, quat2euler
-from alano.geometry.camera import rgba2rgb
+from alano.geometry.transform import quatMult, euler2quat, euler2quat
 
-class GraspMultiViewEnv(GraspEnv, ABC):
+class GraspMultiViewEnv(GraspEnv):
     def __init__(
         self,
         task=None,
         renders=False,
-        img_h=128,
-        img_w=128,
         use_rgb=False,
         use_depth=True,
-        max_steps_train=100,
-        max_steps_eval=100,
-        done_type='fail',
         #
         mu=0.5,
         sigma=0.03,
-        # camera_params=None,
+        camera_params=None,
     ):
         """
         Args:
@@ -42,16 +35,11 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         super(GraspMultiViewEnv, self).__init__(
             task=task,
             renders=renders,
-            img_h=img_h,
-            img_w=img_w,
             use_rgb=use_rgb,
             use_depth=use_depth,
-            max_steps_train=max_steps_train,
-            max_steps_eval=max_steps_eval,
-            done_type=done_type,
             mu=mu,
             sigma=sigma,
-            camera_params=None,  #! use wrist view
+            camera_params=camera_params,  #TODO
         )
 
         # Wrist view camera
@@ -66,29 +54,22 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         self.action_high = np.array(
                 [0.02, 0.02, -0.03, 15 * np.pi / 180])  #! TODO: tune
 
-        # Fix seed
-        self.seed(0)
+
+    @property
+    def state_dim(self):
+        """
+        Dimension of robot state - 4D + gripper
+        """
+        return 5
+
 
     @property
     def action_dim(self):
         """
-        Dimension of robot action - x,y,yaw
+        Dimension of robot action - x, y, z, yaw
         """
         return 4
 
-    # @abstractmethod
-    # def report(self):
-    #     """
-    #     Print information of robot dynamics and observation.
-    #     """
-    #     raise NotImplementedError
-
-    # @abstractmethod
-    # def visualize(self):
-    #     """
-    #     Visualize trajectories and value functions.
-    #     """
-    #     raise NotImplementedError
 
     def reset_task(self, task):
         """
@@ -179,23 +160,22 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         collision_force_threshold = 0
         if self.step_elapsed == self.max_steps: # only check collision at last step
             collision_force_threshold = 20
-        collision = self.move(absolute_pos=ee_pos_nxt,
-                  absolute_global_quat=ee_quat_nxt,
-                  num_steps=100,
-                  collision_force_threshold=collision_force_threshold,
-                  )
+        collision = self.move_pose(absolute_pos=ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100,
+                            collision_force_threshold=collision_force_threshold,
+                            )
 
         # Grasp if last step, and then lift
         if self.step_elapsed == self.max_steps:
             self.grasp(target_vel=-0.10)  # close
-            self.move(
-                ee_pos_nxt,  # keep for some time
-                absolute_global_quat=ee_quat_nxt,
-                num_steps=100)
+            self.move_pose(ee_pos_nxt,  # keep for some time
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100)
             ee_pos_nxt[2] += 0.1
-            self.move(ee_pos_nxt,
-                      absolute_global_quat=ee_quat_nxt,
-                      num_steps=100)
+            self.move_pose(ee_pos_nxt,
+                            absolute_global_quat=ee_quat_nxt,
+                            num_steps=100)
         else:
             self.grasp(target_vel=0.10)  # open
 
@@ -217,54 +197,10 @@ class GraspMultiViewEnv(GraspEnv, ABC):
             done = True
         return self._get_obs(), reward, done, {'success': success, 'safe': self.safe_trial}
 
+
     def _get_obs(self):
-        """Wrist camera image
-        """
-        ee_pos, ee_quat = self._get_ee()
-        rot_matrix = quat2rot(ee_quat)
-        camera_pos = ee_pos + rot_matrix.dot(self.camera_wrist_offset)
-        # plot_frame_pb(camera_pos, ee_orn)
-
-        # Initial vectors
-        init_camera_vector = (0, 0, 1)  # z-axis
-        init_up_vector = (1, 0, 0)  # x-axis
-
-        # Rotated vectors
-        camera_vector = rot_matrix.dot(init_camera_vector)
-        up_vector = rot_matrix.dot(init_up_vector)
-        view_matrix = self._p.computeViewMatrix(
-            camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
-
-        # Get Image
-        far = 1000.0
-        near = 0.01
-        projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=self.camera_fov,
-            aspect=self.camera_aspect,
-            nearVal=near,
-            farVal=far)
-        _, _, rgb, depth, _ = self._p.getCameraImage(
-            self.img_w,
-            self.img_h,
-            view_matrix,
-            projection_matrix,
-            flags=self._p.ER_NO_SEGMENTATION_MASK)
-        out = []
-        if self.use_depth:
-            depth = far * near / (far - (far - near) * depth)
-            depth = (self.camera_max_depth - depth) / self.camera_max_depth
-            depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #!
-            depth = depth.clip(min=0., max=1.)
-            depth = np.uint8(depth * 255)
-            out += [depth[np.newaxis]]
-        if self.use_rgb:
-            rgb = rgba2rgb(rgb).transpose(2, 0, 1)  # store as uint8
-            rgb_mask = np.uint8(np.random.choice(np.arange(0,2), size=rgb.shape[1:], replace=True, p=[0.95, 0.05]))
-            rgb_random = np.random.randint(0, 256, size=rgb.shape[1:], dtype=np.uint8)  #!
-            rgb_mask *= rgb_random
-            rgb = np.where(rgb_mask > 0, rgb_mask, rgb)
-            out += [rgb]
-        out = np.concatenate(out)
+        out = self.get_wrist_obs()
+        return out
 
         # import pkgutil
         # egl = pkgutil.get_loader('eglRenderer')
@@ -283,8 +219,6 @@ class GraspMultiViewEnv(GraspEnv, ABC):
         # im_rgb.save('rgb_sample_0.jpg')
         # im_depth = Image.fromarray(out[0])
         # im_depth.save('depth_sample_0.jpg')
-
-        return out
 
         # Check if object moved or gripper rolled or pitched, meaning contact happened
         # flag_obj_move = False
