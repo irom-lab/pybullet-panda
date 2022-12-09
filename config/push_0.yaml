@@ -1,0 +1,100 @@
+environment:
+  RENDER: False
+  VENV_SEED: 42
+  ENV_NAME: Push-v0
+  ACTION_DIM: 3
+  ACTION_MAG: 1.0
+  USE_APPEND: False
+  MAX_TRAIN_STEPS: 25 # 5Hz, 5s
+  MAX_EVAL_STEPS: 25
+  USE_RGB: True
+  USE_DEPTH: False  #!
+  NUM_ENV_TRAIN: 100
+  DATASET: /home/allen/panda/data/private/box/box_100_0.pkl
+  CAMERA:
+    pos:
+      - 0.5
+      - 0
+      - 0.6
+    euler:
+      - 0
+      - -3.142
+      - 1.571
+    img_w: 64
+    img_h: 64
+    aspect: 1
+    fov: 70
+    max_depth: 0.6
+
+training:
+  EVAL: False
+  USE_WANDB: True
+  DEVICE: cuda:0
+  IMAGE_DEVICE: cuda:0
+  NUM_CPUS: 8  #!
+  SEED: 42
+  NAME: push_0
+  OUT_FOLDER: /home/allen/panda/result/push_0/0
+  PROJECT_NAME: push  #!
+  AGENT_NAME: AgentPush
+  SAVE_TOP_K: 20
+  SAVE_METRIC: cum_reward
+  MAX_SAMPLE_STEPS: 200000
+  MEMORY_CAPACITY: 20000
+  MIN_STEPS_B4_OPT: 1000
+  OPTIMIZE_FREQ: 1000
+  UPDATE_PER_OPT: 100 #!
+  CHECK_OPT_FREQ: 2
+  NUM_EVAL_EPISODE: 16
+
+update:
+  EVAL: False
+  DEVICE: cuda:0
+  BATCH_SIZE: 128
+  UPDATE_PERIOD: 1
+  ALPHA: 0.02 #!
+  LEARN_ALPHA: False
+  GAMMA: 0.99
+  GAMMA_SCHEDULE: false
+  LR_A: 0.0003
+  LR_Al: 0.0003
+  LR_C: 0.0003
+  LR_A_SCHEDULE: false
+  LR_Al_SCHEDULE: false
+  LR_C_SCHEDULE: false
+  TAU: 0.01
+  MODE: performance
+  ACTOR_PATH:
+  CRITIC_PATH:
+
+arch:
+  ACTIVATION:
+    actor: ReLU
+    critic: ReLU
+  KERNEL_SIZE:
+  - 5
+  - 3
+  - 3
+  STRIDE:
+  - 1
+  - 1
+  - 1
+  PADDING:
+  - 2
+  - 1
+  - 1
+  N_CHANNEL:
+  - 8
+  - 16
+  - 32
+  MLP_DIM:
+    actor:
+    - 64
+    - 64
+    critic:
+    - 64
+    - 64
+  APPEND_DIM: 0 #? EE pose
+  USE_BN: false
+  USE_LN: True
+  USE_SM: True  #!
