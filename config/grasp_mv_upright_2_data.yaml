@@ -1,0 +1,89 @@
+environment:
+  RENDER: False
+  VENV_SEED: 42
+  ENV_NAME: GraspMultiView-v0
+  ACTION_DIM: 4
+  ACTION_MAG: 1.0
+  TERMINAL_TYPE: const
+  IMG_H: 100
+  IMG_W: 150
+  USE_RGB: True
+  USE_DEPTH: True
+  MAX_TRAIN_STEPS: 5
+  MAX_EVAL_STEPS: 5
+  USE_APPEND: False
+  NUM_ENV_TRAIN: 5000
+  DATASET: /home/allen/panda/data/private/mug/mug_3_5000_upright_ps.pkl
+
+training:
+  EVAL: True
+  USE_WANDB: False
+  DEVICE: cuda:0
+  IMAGE_DEVICE: cuda:0
+  NUM_CPUS: 16  #!
+  SEED: 42
+  NAME: grasp_mv_upright_2
+  OUT_FOLDER: /home/allen/panda/result/grasp_mv_upright_2/medium_ps_noise
+  PROJECT_NAME: grasp-mv  #!
+  AGENT_NAME: AgentGraspMV
+  SAVE_TOP_K: 20
+  SAVE_METRIC: safe
+  MAX_SAMPLE_STEPS: 1000000
+  MEMORY_CAPACITY: 50000
+  MIN_STEPS_B4_OPT: 2000
+  OPTIMIZE_FREQ: 2000
+  UPDATE_PER_OPT: 100 #!
+  CHECK_OPT_FREQ: 5
+  NUM_EVAL_EPISODE: 100
+
+update:
+  EVAL: False
+  DEVICE: cuda:0
+  BATCH_SIZE: 128 #!
+  UPDATE_PERIOD: 1
+  ALPHA: 0.003 #!
+  LEARN_ALPHA: False
+  GAMMA: 0.99
+  GAMMA_SCHEDULE: false
+  LR_A: 0.0003
+  LR_Al: 0.0003
+  LR_C: 0.0003
+  LR_A_SCHEDULE: false
+  LR_Al_SCHEDULE: false
+  LR_C_SCHEDULE: false
+  TAU: 0.01
+  MODE: performance
+  # ACTOR_PATH: result/grasp_mv_upright_2/0/model/actor/actor-994000.pth
+  # CRITIC_PATH: result/grasp_mv_upright_2/0/model/critic/critic-994000.pth
+  # ACTOR_PATH: result/grasp_mv_upright_2/1/model/actor/actor-34000.pth
+  # CRITIC_PATH: result/grasp_mv_upright_2/1/model/critic/critic-34000.pth
+  ACTOR_PATH: result/grasp_mv_upright_2/1/model/actor/actor-54000.pth
+  CRITIC_PATH: result/grasp_mv_upright_2/1/model/critic/critic-54000.pth
+
+arch:
+  ACTIVATION:
+    actor: ReLU
+    critic: ReLU
+  KERNEL_SIZE:
+  - 7
+  - 5
+  - 3
+  STRIDE:
+  - 4
+  - 3
+  - 2
+  N_CHANNEL:
+  - 8
+  - 16
+  - 32
+  MLP_DIM:
+    actor:
+    - 256
+    - 256
+    critic:
+    - 256
+    - 256
+  APPEND_DIM: 0 #? EE pose
+  USE_BN: false
+  USE_LN: True
+  USE_SM: false
