@@ -1,0 +1,74 @@
+seed: 42
+device: cuda:0
+image_device: cuda:0 
+num_cpus: 10
+cpu_offset: 0
+use_wandb: False
+run: grasp_cartesian_test
+out_folder: result/grasp_cartesian_test
+project: grasp-eq
+agent: AgentGrasp
+verbose: True
+
+policy:
+  # name:
+  eval: False
+  max_sample_steps: 50000
+  num_warmup_step_percentage: 0.02
+  num_eval_episode: 20
+  memory_capacity: 1000
+  update_freq: 100
+  replay_ratio: 16
+  batch_size: 64
+  check_freq: 10
+  save_top_k: 3
+  save_metric: cum_reward
+  save_memory: False
+  save_optim: False
+  num_affordance: 1
+  eps:
+    init: 1.0
+    period_percentage: 0.1
+    end: 0.5
+    step: -0.1
+  learner:
+    name: GraspBandit
+    num_theta: 3
+    lr: 0.001
+    lr_schedule: False
+    arch:
+      in_channels: 1
+      out_channels: 1
+      inner_channels: 16
+      append_dum: 0
+  utility:
+    name:
+  dataset: data/mug/mug_3_500_upright_prior.pkl
+
+env:
+  render: False
+  name: Grasp-v0
+  action_dim:
+  max_train_steps: 1
+  max_eval_steps: 1
+  camera:
+    img_w: 64
+    img_h: 64
+    use_rgb: False
+    use_depth: True
+    pos:
+      - 0.5
+      - 0
+      - 0.4
+    euler:
+      - 0
+      - -3.14
+      - 1.57
+    fov: 45
+    aspect: 1
+    overhead_max_depth: 0.4
+    overhead_min_depth: 0.3
+    save_byte: False
+  specific:
+
+
