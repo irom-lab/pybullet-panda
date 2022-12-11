@@ -1,104 +1,116 @@
-# Please contact the author(s) of this library if you have any questions.
-# Authors: Kai-Chieh Hsu ( kaichieh@princeton.edu )
-#           Allen Z. Ren ( allen.ren@princeton.edu )
-
-from warnings import simplefilter
 import os
+import sys
 import argparse
-import time
 import pretty_errors
 import wandb
-from shutil import copyfile
+import matplotlib
+# matplotlib.use('Agg')
+from omegaconf import OmegaConf
+import logging
+import time
 
 # AGENT
-from agent.agent_grasp_mv import AgentGraspMV
-from agent.agent_push import AgentPush
+from agent import get_agent
 
 # ENV
-from panda_gym.vec_env.vec_env import VecEnvGraspMV, VecEnvGraspMVRandom, VecEnvPush
+from panda_gym import get_env, get_vec_env, get_vec_env_cfg
 from alano.train.vec_env import make_vec_envs
-from alano.utils.yaml import load_config
-
-simplefilter(action='ignore', category=FutureWarning)
-timestr = time.strftime("%Y-%m-%d-%H_%M")
-import matplotlib
-matplotlib.use('Agg')
 
 
-def main(config_file, config_dict):
-    # Config
-    CONFIG_ENV = config_dict['environment']
-    CONFIG_TRAINING = config_dict['training']
-    CONFIG_ARCH = config_dict['arch']
-    CONFIG_UPDATE = config_dict['update']
-    os.makedirs(CONFIG_TRAINING.OUT_FOLDER, exist_ok=True)
-    copyfile(config_file,
-             os.path.join(CONFIG_TRAINING.OUT_FOLDER, 'config.yaml'))
-    if CONFIG_TRAINING.USE_WANDB:
+def main(cfg):
+    ################### Logging ###################
+    log_file = os.path.join(cfg.out_folder, 'log.log')
+    log_fh = logging.FileHandler(log_file, mode='w+')
+    log_sh = logging.StreamHandler(sys.stdout)
+    log_format = '%(asctime)s %(levelname)s: %(message)s'
+    # Possible levels: DEBUG, INFO, WARNING, ERROR, CRITICAL    
+    logging.basicConfig(format=log_format, level='INFO', 
+        handlers=[log_sh, log_fh])
+
+    ###################### cfg ######################
+    os.makedirs(cfg.out_folder, exist_ok=True)
+    if cfg.use_wandb:
         wandb.init(entity='allenzren',
-                   project=CONFIG_TRAINING.PROJECT_NAME,
-                   name=CONFIG_TRAINING.NAME)
-        wandb.config.update(CONFIG_ENV)
-        wandb.config.update(CONFIG_TRAINING)
+                   project=cfg.project,
+                   name=cfg.run)
+        wandb.config.update(cfg)
+
+    # Reuse some cfg
+    cfg.policy.num_cpus = cfg.num_cpus
+    cfg.policy.out_folder = cfg.out_folder
+    cfg.policy.use_wandb = cfg.use_wandb
+    cfg.policy.action_dim = cfg.env.action_dim
+    cfg.policy.max_train_steps = cfg.env.max_train_steps
+    cfg.policy.max_eval_steps = cfg.env.max_eval_steps
+
+    # Learner
+    if hasattr(cfg.env, 'action_dim'):
+        cfg.policy.learner.arch.action_dim = cfg.env.action_dim
+    cfg.policy.learner.eval = cfg.policy.eval
+    if cfg.env.camera is not None:
+        cfg.policy.learner.img_h = cfg.env.camera.img_h
+        cfg.policy.learner.img_w = cfg.env.camera.img_w
+        cfg.policy.learner.arch.img_h = cfg.env.camera.img_h
+        cfg.policy.learner.arch.img_w = cfg.env.camera.img_w
+
+    # Device
+    cfg.policy.device = cfg.device
+    cfg.policy.image_device = cfg.image_device
+    cfg.policy.learner.device = cfg.device
+    cfg.policy.utility.device = cfg.device
+
+    # Use same seed
+    cfg.policy.seed = cfg.seed
+    cfg.policy.learner.seed = cfg.seed
+
+    ###################### Env ######################
+    # Common args
+    env_cfg = OmegaConf.create({'render': cfg.env.render,
+                                'camera_param': cfg.env.camera})
+
+    # Add
+    if cfg.env.specific:
+        env_cfg = OmegaConf.merge(env_cfg, cfg.env.specific)
 
     # Environment
     print("\n== Environment Information ==")
-    if CONFIG_ENV.ENV_NAME == 'GraspMultiView-v0':
-        vec_env_type = VecEnvGraspMV
-    elif CONFIG_ENV.ENV_NAME == 'GraspMultiViewRandom-v0':
-        vec_env_type = VecEnvGraspMVRandom
-    elif CONFIG_ENV.ENV_NAME == 'Push-v0':
-        vec_env_type = VecEnvPush
-    else:
-        raise NotImplementedError
     venv = make_vec_envs(
-        env_name=CONFIG_ENV.ENV_NAME,
-        seed=CONFIG_TRAINING.SEED,
-        num_processes=CONFIG_TRAINING.NUM_CPUS,
-        device=CONFIG_TRAINING.DEVICE,
-        config_env=CONFIG_ENV,
-        vec_env_type=vec_env_type,
-        renders=CONFIG_ENV.RENDER,
-        use_rgb=CONFIG_ENV.USE_RGB,
-        use_depth=CONFIG_ENV.USE_DEPTH,
-        camera_params=CONFIG_ENV.CAMERA,
+        env_type=get_env(cfg.env.name),
+        seed=cfg.seed,
+        num_process=cfg.num_cpus,
+        cpu_offset=cfg.cpu_offset,
+        device=cfg.device,
+        vec_env_type=get_vec_env(cfg.env.name),
+        vec_env_cfg=get_vec_env_cfg(cfg.env.name, cfg.env),
+        **env_cfg,  # pass to individual env
     )
-    # venv.reset()
 
     # Agent
     print("\n== Agent Information ==")
-    if CONFIG_TRAINING.AGENT_NAME == 'AgentGraspMV':
-        agent_class = AgentGraspMV
-    elif CONFIG_TRAINING.AGENT_NAME == 'AgentPush':
-        agent_class = AgentPush
-    else:
-        raise NotImplementedError
-    agent = agent_class(CONFIG_TRAINING, CONFIG_UPDATE, CONFIG_ARCH,
-                        CONFIG_ENV)
-    print('\nTotal parameters in actor: {}'.format(
-        sum(p.numel() for p in agent.performance.actor.parameters()
+    agent = get_agent(cfg.agent)(cfg.policy, venv)
+    print('\nTotal parameters in policy: {}'.format(
+        sum(p.numel() for p in agent.learner.parameters()
             if p.requires_grad)))
     print("We want to use: {}, and Agent uses: {}".format(
-        CONFIG_TRAINING.DEVICE, agent.performance.device))
+        cfg.device, agent.learner.device))
 
     # Learn
-    if CONFIG_TRAINING.EVAL:
+    start_time = time.time()
+    if cfg.policy.eval:
         print("\n== Evaluating ==")
-        agent.evaluate(venv)
+        agent.evaluate()
     else:
         print("\n== Learning ==")
-        train_records, train_progress = agent.learn(venv)
+        agent.learn(verbose=cfg.verbose)
+    logging.info('\nTime used: {:.1f}'.format(time.time() - start_time))
 
 
 if __name__ == "__main__":
-    import time
-    s1 = time.time()
     parser = argparse.ArgumentParser()
     parser.add_argument("-cf",
-                        "--config_file",
-                        help="config file path",
+                        "--cfg_file",
+                        help="cfg file path",
                         type=str)
     args = parser.parse_args()
-    config_dict = load_config(args.config_file)
-    main(args.config_file, config_dict)
-    print('Time used: ', time.time()-s1)
+    cfg = OmegaConf.load(args.cfg_file)
+    main(cfg)

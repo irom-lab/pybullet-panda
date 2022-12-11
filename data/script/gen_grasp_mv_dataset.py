@@ -1,11 +1,10 @@
 import os
-from alano.utils.pickle import save_obj, load_obj
 import glob
 import random
 import numpy as np
-import pickle
 import itertools
 import math
+from alano.util.pickle import save_obj, load_obj
 
 random.seed(1000)
 np.random.seed(1000)

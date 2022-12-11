@@ -1,22 +1,21 @@
 import os
 import numpy as np
 
-from .util import sample_uniform
+from util.numeric import sample_uniform
 from panda_gym.push_env import PushEnv
 from alano.geometry.transform import euler2quat
-from alano.utils.pickle import save_obj
-
+from alano.util.pickle import save_obj
 
 
 # Env for IK
 env = PushEnv(task=None,
-            renders=False,
+            render=False,
             use_rgb=True,
             use_depth=True,
             #
             mu=0.3,
             sigma=0.01,
-            camera_params=None)
+            camera_param=None)
 env.reset()
 
 #! seed train: 42, test: 424, ood: 4242

@@ -1,6 +1,6 @@
 import numpy as np
 
-from .util import normalize_action
+from util.numeric import unnormalize_tanh
 from panda_gym.grasp_env import GraspEnv
 from alano.geometry.transform import quatMult, euler2quat, euler2quat
 
@@ -8,38 +8,18 @@ class GraspMultiViewEnv(GraspEnv):
     def __init__(
         self,
         task=None,
-        renders=False,
-        use_rgb=False,
-        use_depth=True,
+        render=False,
+        camera_param=None,
         #
         mu=0.5,
         sigma=0.03,
-        camera_params=None,
     ):
-        """
-        Args:
-            task (str, optional): the name of the task. Defaults to None.
-            img_H (int, optional): the height of the image. Defaults to 128.
-            img_W (int, optional): the width of the image. Defaults to 128.
-            use_rgb (bool, optional): whether to use RGB image. Defaults to
-                True.
-            renders (bool, optional): whether to render the environment.
-                Defaults to False.
-            max_steps_train (int, optional): the maximum number of steps to
-                train. Defaults to 100.
-            max_steps_eval (int, optional): the maximum number of steps to
-                evaluate. Defaults to 100.
-            done_type (str, optional): the type of the done. Defaults to
-                'fail'.
-        """
         super(GraspMultiViewEnv, self).__init__(
             task=task,
-            renders=renders,
-            use_rgb=use_rgb,
-            use_depth=use_depth,
+            render=render,
+            camera_param=camera_param,  #TODO
             mu=mu,
             sigma=sigma,
-            camera_params=camera_params,  #TODO
         )
 
         # Wrist view camera
@@ -145,8 +125,8 @@ class GraspMultiViewEnv(GraspEnv):
         self.step_elapsed += 1
 
         # Extract action
-        norm_action = normalize_action(action, self.action_low, self.action_high)
-        delta_x, delta_y, delta_z, delta_yaw = norm_action
+        raw_action = unnormalize_tanh(action, self.action_low, self.action_high)
+        delta_x, delta_y, delta_z, delta_yaw = raw_action
         ee_pos, ee_quat = self._get_ee()
         ee_pos_nxt = ee_pos
         ee_pos_nxt[0] += delta_x

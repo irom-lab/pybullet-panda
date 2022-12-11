@@ -1,8 +1,5 @@
 wandb/
 result/
-config/
-data/private/
-script/private/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

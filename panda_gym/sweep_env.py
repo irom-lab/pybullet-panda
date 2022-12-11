@@ -1,9 +1,7 @@
 import numpy as np
-import os
-from os.path import dirname
 
 from .tool import Tool
-from .util import normalize_action
+from util.numeric import unnormalize_tanh
 from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quat2euler, euler2quat
 
@@ -12,20 +10,16 @@ class SweepEnv(BaseEnv):
     def __init__(
         self,
         task=None,
-        renders=False,
-        use_rgb=True,
-        use_depth=False,
+        render=False,
+        camera_param=None,
         #
         mu=0.3,
         sigma=0.01,
-        camera_params=None,
     ):
         super(SweepEnv, self).__init__(
             task=task,
-            renders=renders,
-            use_rgb=use_rgb,
-            use_depth=use_depth,
-            camera_params=camera_params,
+            render=render,
+            camera_param=camera_param,
         )
         self.tool_id = None
         self.cylinder_id = None
@@ -173,10 +167,10 @@ class SweepEnv(BaseEnv):
             self.grasp_executed = False
 
         # Apply action - velocity control
-        norm_action = normalize_action(action, self._action_low, 
-                                                self._action_high)
-        target_lin_vel = norm_action[:3]
-        target_ang_vel = [0, 0, norm_action[-1]]
+        raw_action = unnormalize_tanh(action, self._action_low, 
+                                              self._action_high)
+        target_lin_vel = raw_action[:3]
+        target_ang_vel = [0, 0, raw_action[-1]]
 
         # Apply
         self.move_vel(target_lin_vel, 
@@ -239,24 +233,24 @@ class SweepEnv(BaseEnv):
         info = {}
         info['task'] = self.task
         info['s'] = self.state
-        return self._get_obs(self._camera_params), reward, done, info
+        return self._get_obs(self._camera_param), reward, done, info
 
 
-    def _get_obs(self, camera_params):
-        # obs_wrist = self.get_wrist_obs(camera_params)  # uint8
-        obs_overhead = self.get_overhead_obs(camera_params)  # uint8
+    def _get_obs(self, camera_param):
+        # obs_wrist = self.get_wrist_obs(camera_param)  # uint8
+        obs_overhead = self.get_overhead_obs(camera_param)  # uint8
 
-        camera_params_aux = {}
-        camera_params_aux['pos'] = [0.4, 0.6, 0.20]  
-        camera_params_aux['euler'] = [0, -1.8, 1.8]
-        camera_params_aux['img_h'] = 128
-        camera_params_aux['img_w'] = 128
-        camera_params_aux['aspect'] = 1
-        camera_params_aux['fov'] = 60
-        camera_params_aux['overhead_min_depth'] = 0.3
-        camera_params_aux['overhead_max_depth'] = 0.8
+        camera_param_aux = {}
+        camera_param_aux['pos'] = [0.4, 0.6, 0.20]  
+        camera_param_aux['euler'] = [0, -1.8, 1.8]
+        camera_param_aux['img_h'] = 128
+        camera_param_aux['img_w'] = 128
+        camera_param_aux['aspect'] = 1
+        camera_param_aux['fov'] = 60
+        camera_param_aux['overhead_min_depth'] = 0.3
+        camera_param_aux['overhead_max_depth'] = 0.8
 
-        obs_aux = self.get_overhead_obs(camera_params_aux)  # uint8
+        obs_aux = self.get_overhead_obs(camera_param_aux)  # uint8
         return np.vstack((obs_overhead, obs_aux))
 
         # return np.vstack((obs_wrist, obs_overhead))

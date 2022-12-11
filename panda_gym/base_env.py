@@ -1,66 +1,44 @@
-from abc import ABC, abstractmethod
 import os
 from os.path import dirname
 import pathlib
-from re import L
 import numpy as np
 import torch
-import gym
 import pybullet as p
 from pybullet_utils import bullet_client as bc
 from collections import deque
 
-from .util import rgba2rgb
+from util.image import rgba2rgb
 from alano.geometry.transform import quat2rot, euler2quat, quatMult, log_rot, quatInverse, quat2euler
 from alano.geometry.scaling import traj_time_scaling
 from alano.bullet.kinematics import full_jacob_pb
 from alano.bullet.visualize import plot_frame_pb
 
 
-class BaseEnv(gym.Env, ABC):
+class BaseEnv():
     def __init__(self,
                  task=None,
-                 renders=False,
-                 use_rgb=True,
-                 use_depth=False,
-                 camera_params=None,
+                 render=False,
+                 camera_param=None,
                 #  finger_type='drake'
                  ):
-        """
-        Args:
-            task (str, optional): the name of the task. Defaults to None.
-            render (bool, optional): whether to render the environment.
-                Defaults to False.
-        """
-        super(BaseEnv, self).__init__()
         self.task = task
-        self.renders = renders
-        self.use_depth = use_depth
-        self.use_rgb = use_rgb
-        if camera_params is None:
-            camera_params = {}
+        self.render = render
+        if camera_param is None:
+            camera_param = {}
             camera_height = 0.40
-            camera_params['pos'] = np.array([1.0, 0, camera_height])
-            camera_params['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
-            camera_params['img_w'] = 64
-            camera_params['img_h'] = 64
-            camera_params['aspect'] = 1
-            camera_params['fov'] = 70    # vertical fov in degrees
-            camera_params['max_depth'] = camera_height
-        self.camera_params = camera_params
+            camera_param['pos'] = np.array([1.0, 0, camera_height])
+            camera_param['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+            camera_param['img_w'] = 64
+            camera_param['img_h'] = 64
+            camera_param['aspect'] = 1
+            camera_param['fov'] = 70    # vertical fov in degrees
+            camera_param['max_depth'] = camera_height
+        self._camera_param = camera_param
 
         # PyBullet instance
         self._p = None
         self._physics_client_id = -1  # PyBullet
         self._panda_id = -1
-
-        # Set up observation and action space for Gym
-        _num_img_channel = 0
-        if use_rgb:
-            _num_img_channel += 3  # RGB
-        if use_depth:
-            _num_img_channel += 1  # D only
-        self._camera_params = camera_params
 
         # Panda config
         # if finger_type is None:
@@ -106,6 +84,9 @@ class BaseEnv(gym.Env, ABC):
         self._finger_open_vel = 0.10
         self._finger_close_vel = -0.10
 
+        # Default joint angles
+        self._default_joint_angles = [0, -0.35, 0, -2., 0, 3.483, 0.785, 0.0, 0.0]
+
 
     def seed(self, seed=0):
         """Set when vec_env constructed"""
@@ -117,12 +98,9 @@ class BaseEnv(gym.Env, ABC):
             self.seed_val)  # if you are using multi-GPU.
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        # self.np_random, seed = gym.utils.seeding.np_random(seed)
-        # return [seed]
 
 
     @property
-    @abstractmethod
     def state_dim(self):
         """
         Dimension of robot state
@@ -131,7 +109,6 @@ class BaseEnv(gym.Env, ABC):
 
 
     @property
-    @abstractmethod
     def action_dim(self):
         """
         Dimension of robot action
@@ -140,15 +117,13 @@ class BaseEnv(gym.Env, ABC):
 
 
     @property
-    @abstractmethod
     def state(self):
         """
-        Current obot state
+        Current robot state
         """
         raise NotImplementedError
 
 
-    @abstractmethod
     def step(self):
         """
         Gym style step function. Apply action, move robot, get observation,
@@ -157,7 +132,6 @@ class BaseEnv(gym.Env, ABC):
         raise NotImplementedError
 
 
-    @abstractmethod
     def reset_task(self):
         """
         Reset the task for the environment.
@@ -185,8 +159,8 @@ class BaseEnv(gym.Env, ABC):
             self._plane_id = self._p.loadURDF(plane_urdf_path,
                                               basePosition=[0, 0, -1],
                                               useFixedBase=1)
-            table_urdf_path =  os.path.join(dirname(dirname(__file__)),
-                                            f'data/table/table.urdf')
+            table_urdf_path = os.path.join(dirname(dirname(__file__)),
+                                           f'data/table/table.urdf')
             self._table_id = self._p.loadURDF(
                 table_urdf_path,
                 basePosition=[0.400, 0.000, -0.630 + 0.005],
@@ -195,18 +169,22 @@ class BaseEnv(gym.Env, ABC):
 
             # Set friction coefficient for table
             self._p.changeDynamics(self._table_id, -1,
-                                lateralFriction=self._mu,
-                                spinningFriction=self._sigma,
-                                frictionAnchor=1,
-                                )
+                                   lateralFriction=self._mu,
+                                   spinningFriction=self._sigma,
+                                   frictionAnchor=1,
+                                   )
 
             # Change color
             self._p.changeVisualShape(self._table_id, -1,
-                                    rgbaColor=[0.7, 0.7, 0.7, 1.0])
+                                      rgbaColor=[0.7, 0.7, 0.7, 1.0])
 
         # Load arm - need time for gripper to reset - weird issue with the constraint that the initial finger joint cannot be reset instantly
         self.reset_robot(self._mu, self._sigma, task)
-        self.grasp(target_vel=task['initial_finger_vel'])
+        if hasattr(task, 'initial_finger_vel'):
+            init_finger_vel = task['initial_finger_vel']
+        else:
+            init_finger_vel = self._finger_open_vel # open gripper by defaul
+        self.grasp(target_vel=init_finger_vel)
         if self._finger_cur_vel > 0:
             for _ in range(10):
                 for i in range(self._num_joint_arm):
@@ -232,14 +210,14 @@ class BaseEnv(gym.Env, ABC):
         # Reset task - add object before arm down
         self.reset_task(task)
 
-        return self._get_obs(self._camera_params)
+        return self._get_obs(self._camera_param)
 
 
     def init_pb(self):
         """
         Initialize PyBullet environment.
         """
-        if self.renders:
+        if self.render:
             self._p = bc.BulletClient(connection_mode=p.GUI, options='--width=2000 --height=1600')
             self._p.resetDebugVisualizerCamera(0.8, 90, -40, [0.5, 0, 0])
         else:
@@ -319,14 +297,16 @@ class BaseEnv(gym.Env, ABC):
             # Measure EE joint
             self._p.enableJointForceTorqueSensor(self._panda_id, self._ee_joint_id, 1)
 
-        # Solve ik if needed
-        if 'init_pose' in task:
+        # Solve ik if task specifies initial pose
+        if hasattr(task, 'init_pose'):
             pos = task['init_pose'][:3]
             orn = task['init_pose'][3:]
-            task['init_joint_angles'] = self.get_ik(pos, orn)
+            init_joint_angles = self.get_ik(pos, orn)
+        else:
+            init_joint_angles = self._default_joint_angles
 
         # Reset all joint angles
-        self.reset_robot_joints(task['init_joint_angles'])
+        self.reset_robot_joints(init_joint_angles)
 
 
     def reset_robot_joints(self, angles):
@@ -635,16 +615,15 @@ class BaseEnv(gym.Env, ABC):
 
     ################# Observation #################
 
-    @abstractmethod
     def _get_obs(self):
         raise NotImplementedError
 
 
-    def get_overhead_obs(self, camera_params):
+    def get_overhead_obs(self, camera_param):
         far = 1000.0
         near = 0.01
-        camera_pos = camera_params['pos']
-        rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_params['euler']))
+        camera_pos = np.array(camera_param['pos'])
+        rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_param['euler']))
         init_camera_vector = (0, 0, 1)  # z-axis
         init_up_vector = (1, 0, 0)  # x-axis
         camera_vector = rot_matrix.dot(init_camera_vector)
@@ -653,37 +632,37 @@ class BaseEnv(gym.Env, ABC):
         view_matrix = self._p.computeViewMatrix(
             camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_params['fov'],
-            aspect=camera_params['aspect'],
+            fov=camera_param['fov'],
+            aspect=camera_param['aspect'],
             nearVal=near,
             farVal=far)
 
         _, _, rgb, depth, _ = self._p.getCameraImage(
-            camera_params['img_w'],
-            camera_params['img_h'],
+            camera_param['img_w'],
+            camera_param['img_h'],
             view_matrix,
             projection_matrix,
             flags=self._p.ER_NO_SEGMENTATION_MASK)
         out = []
-        if self.use_depth:
+        if camera_param['use_depth']:
             depth = far * near / (far - (far - near) * depth)
-            depth = (camera_params['overhead_max_depth'] - depth) / (camera_params['overhead_max_depth'] - camera_params['overhead_min_depth'])
+            depth = (camera_param['overhead_max_depth'] - depth) / (camera_param['overhead_max_depth'] - camera_param['overhead_min_depth'])
             depth = depth.clip(min=0., max=1.)
-            depth = np.uint8(depth * 255)
+            if camera_param['save_byte']:
+                depth = np.uint8(depth * 255)
             out += [depth[np.newaxis]]
-        if self.use_rgb:
+        if camera_param['use_rgb']:
+            # TODO: save_byte option
             rgb = rgba2rgb(rgb).transpose(2, 0, 1)
             out += [rgb]
         out = np.concatenate(out)
         return out  # uint8
 
 
-    def get_wrist_obs(self, camera_params):    # todo: use dict for params
-        """Wrist camera image
-        """
+    def get_wrist_obs(self, camera_param):    # todo: use dict for params
         ee_pos, ee_quat = self._get_ee()
         rot_matrix = quat2rot(ee_quat)
-        camera_pos = ee_pos + rot_matrix.dot(camera_params['wrist_offset'])
+        camera_pos = ee_pos + rot_matrix.dot(camera_param['wrist_offset'])
         # plot_frame_pb(camera_pos, ee_orn)
 
         # Initial vectors
@@ -700,20 +679,20 @@ class BaseEnv(gym.Env, ABC):
         far = 1000.0
         near = 0.01
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_params['fov'],
-            aspect=camera_params['aspect'],
+            fov=camera_param['fov'],
+            aspect=camera_param['aspect'],
             nearVal=near,
             farVal=far)
         _, _, rgb, depth, _ = self._p.getCameraImage(
-            camera_params['img_w'],
-            camera_params['img_h'],
+            camera_param['img_w'],
+            camera_param['img_h'],
             view_matrix,
             projection_matrix,
             flags=self._p.ER_NO_SEGMENTATION_MASK)
         out = []
         if self.use_depth:
             depth = far * near / (far - (far - near) * depth)
-            depth = (camera_params['wrist_max_depth'] - depth) / camera_params['wrist_max_depth']
+            depth = (camera_param['wrist_max_depth'] - depth) / camera_param['wrist_max_depth']
             # depth += np.random.normal(loc=0, scale=0.02, size=depth.shape)    #todo: use self.rng
             depth = depth.clip(min=0., max=1.)
             depth = np.uint8(depth * 255)

@@ -1,7 +1,7 @@
 import numpy as np
 
 from .tool import Tool
-from .util import normalize_action
+from util.numeric import unnormalize_tanh
 from panda_gym.push_env import PushEnv
 from alano.geometry.transform import quat2euler
 
@@ -10,22 +10,18 @@ class PushToolEnv(PushEnv):
     def __init__(
         self,
         task=None,
-        renders=False,
-        use_rgb=True,
-        use_depth=False,
+        render=False,
+        camera_param=None,
         #
         mu=0.5, #!
         sigma=0.1,
-        camera_params=None,
     ):
         super(PushToolEnv, self).__init__(
             task=task,
-            renders=renders,
-            use_rgb=use_rgb,
-            use_depth=use_depth,
+            render=render,
+            camera_param=camera_param,
             mu=mu,
             sigma=sigma,
-            camera_params=camera_params,
         )
         self.target_pos = np.array([0.75, 0.15])    # TODO: add to task
 
@@ -83,9 +79,9 @@ class PushToolEnv(PushEnv):
         self.grasp(self._finger_close_vel)
 
         # Apply action - velocity control
-        norm_action = normalize_action(action, self._action_low, 
-                                            self._action_high)
-        x_vel, y_vel, yaw_vel = norm_action
+        raw_action = unnormalize_tanh(action, self._action_low, 
+                                              self._action_high)
+        x_vel, y_vel, yaw_vel = raw_action
         target_lin_vel = [x_vel, y_vel, 0]
         target_ang_vel = [0, 0, yaw_vel]
         self.move_vel(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
@@ -116,4 +112,4 @@ class PushToolEnv(PushEnv):
         info = {}
         info['task'] = self.task
         info['s'] = self.state
-        return self._get_obs(self._camera_params), reward, done, info
+        return self._get_obs(self._camera_param), reward, done, info

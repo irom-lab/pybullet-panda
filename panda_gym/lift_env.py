@@ -1,7 +1,7 @@
 import numpy as np
 
 from .tool import Tool
-from .util import normalize_action
+from util.numeric import unnormalize_tanh
 from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quat2euler, euler2quat, quat2rot, quatInverse, quatMult
 
@@ -10,20 +10,16 @@ class LiftEnv(BaseEnv):
     def __init__(
         self,
         task=None,
-        renders=False,
-        use_rgb=True,
-        use_depth=False,
+        render=False,
+        camera_param=None,
         #
         mu=0.3,
         sigma=0.01,
-        camera_params=None,
     ):
         super(LiftEnv, self).__init__(
             task=task,
-            renders=renders,
-            use_rgb=use_rgb,
-            use_depth=use_depth,
-            camera_params=camera_params,
+            render=render,
+            camera_param=camera_param,
         )
         self.obj_id = None 
         self._mu = mu
@@ -139,10 +135,10 @@ class LiftEnv(BaseEnv):
             self.grasp_executed = False
 
         # Apply action - velocity control
-        norm_action = normalize_action(action, self._action_low, 
-                                                self._action_high)
-        target_lin_vel = norm_action[:3]
-        target_ang_vel = [0, 0, norm_action[3]]
+        raw_action = unnormalize_tanh(action, self._action_low, 
+                                               self._action_high)
+        target_lin_vel = raw_action[:3]
+        target_ang_vel = [0, 0, raw_action[3]]
         # if norm_action[4] > 0:
         #     grasp_vel = norm_action[4]*0.05 + 0.05
         # else:
@@ -210,11 +206,11 @@ class LiftEnv(BaseEnv):
         info = {}
         info['task'] = self.task
         info['s'] = self.state
-        return self._get_obs(self._camera_params), reward, done, info
+        return self._get_obs(self._camera_param), reward, done, info
 
 
-    def _get_obs(self, camera_params):
-        obs_wrist = self.get_wrist_obs(camera_params)  # uint8
-        obs_overhead = self.get_overhead_obs(camera_params)  # uint8
+    def _get_obs(self, camera_param):
+        obs_wrist = self.get_wrist_obs(camera_param)  # uint8
+        obs_overhead = self.get_overhead_obs(camera_param)  # uint8
         return np.vstack((obs_wrist, obs_overhead))
         # return obs_overhead

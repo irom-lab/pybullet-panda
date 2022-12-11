@@ -1,6 +1,6 @@
 import numpy as np
 
-from .util import normalize_action
+from util.numeric import unnormalize_tanh
 from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quat2euler
 
@@ -9,28 +9,16 @@ class PushEnv(BaseEnv):
     def __init__(
         self,
         task=None,
-        renders=False,
-        use_rgb=True,
-        use_depth=False,
+        render=False,
+        camera_param=None,
         #
         mu=0.5,
         sigma=0.1,
-        camera_params=None,
     ):
-        """
-        Args:
-            task (str, optional): the name of the task. Defaults to None.
-            use_rgb (bool, optional): whether to use RGB image. Defaults to
-                True.
-            render (bool, optional): whether to render the environment.
-                Defaults to False.
-        """
         super(PushEnv, self).__init__(
             task=task,
-            renders=renders,
-            use_rgb=use_rgb,
-            use_depth=use_depth,
-            camera_params=camera_params,
+            render=render,
+            camera_param=camera_param,
         )
         self.obj_id = None
         self._mu = mu
@@ -137,9 +125,9 @@ class PushEnv(BaseEnv):
         Assume action in [x,y, yaw] velocity. Right now velocity control is instantaneous, not accounting for acceleration
         """
         # Extract action
-        norm_action = normalize_action(action, self._action_low, 
-                                               self._action_high)
-        x_vel, y_vel, yaw_vel = norm_action
+        raw_action = unnormalize_tanh(action, self._action_low, 
+                                              self._action_high)
+        x_vel, y_vel, yaw_vel = raw_action
         target_lin_vel = [x_vel, y_vel, 0]
         target_ang_vel = [0, 0, yaw_vel]
         self.move_vel(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
@@ -171,11 +159,11 @@ class PushEnv(BaseEnv):
         info['task'] = self.task
         info['ee_pos'] = ee_pos
         info['ee_orn'] = ee_orn
-        return self._get_obs(self._camera_params), reward, done, info
+        return self._get_obs(self._camera_param), reward, done, info
 
 
-    def _get_obs(self, camera_params):
-        obs = self.get_overhead_obs(camera_params)  # uint8
+    def _get_obs(self, camera_param):
+        obs = self.get_overhead_obs(camera_param)  # uint8
         return obs
 
 

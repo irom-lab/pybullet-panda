@@ -9,18 +9,18 @@ import pickle
 
 # Configure camera
 camera_height = 0.40
-camera_params = {}
-camera_params['pos'] = np.array([0.9, 0, camera_height])
-# camera_params['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
-camera_params['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
-camera_params['img_w'] = 128
-camera_params['img_h'] = 128
-camera_params['aspect'] = 1
-camera_params['fov'] = 60    # vertical fov in degrees
-camera_params['overhead_max_depth'] = 0.8
-camera_params['overhead_min_depth'] = 0.3
-camera_params['wrist_offset'] = [0.05, 0.0, 0.02]
-camera_params['wrist_max_depth'] = 0.4
+camera_param = {}
+camera_param['pos'] = np.array([0.9, 0, camera_height])
+# camera_param['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
+camera_param['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+camera_param['img_w'] = 128
+camera_param['img_h'] = 128
+camera_param['aspect'] = 1
+camera_param['fov'] = 60    # vertical fov in degrees
+camera_param['overhead_max_depth'] = 0.8
+camera_param['overhead_min_depth'] = 0.3
+camera_param['wrist_offset'] = [0.05, 0.0, 0.02]
+camera_param['wrist_max_depth'] = 0.4
 
 # Dataset
 dataset = '/home/allen/meta-lang/data/tool_v5_lift_train.pkl'
@@ -33,13 +33,13 @@ with open(dataset, 'rb') as f:
 
 # Initialize environment
 env = LiftEnv(task=task_all[4],
-                renders=True,
+                render=True,
                 use_rgb=True,
                 use_depth=True,
                 #
                 mu=0.5,
                 sigma=0.03,
-                camera_params=camera_params)
+                camera_param=camera_param)
 env.seed(0)
 env.reset()
 # self.reset_arm_joints_ik([0.39, 0.0, 0.17], orn=euler2quat([np.pi,np.pi-np.pi/8,0]))

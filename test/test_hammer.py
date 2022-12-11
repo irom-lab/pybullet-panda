@@ -9,16 +9,16 @@ import pickle
 
 # Configure camera
 camera_height = 0.5
-camera_params = {}
-camera_params['pos'] = np.array([0.9, 0, camera_height])
-# camera_params['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
-camera_params['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
-camera_params['img_w'] = 128
-camera_params['img_h'] = 128
-camera_params['aspect'] = 1
-camera_params['fov'] = 70    # vertical fov in degrees
-camera_params['max_depth'] = camera_height
-camera_params['wrist_offset'] = [0.05, 0.0, 0.02]
+camera_param = {}
+camera_param['pos'] = np.array([0.9, 0, camera_height])
+# camera_param['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
+camera_param['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+camera_param['img_w'] = 128
+camera_param['img_h'] = 128
+camera_param['aspect'] = 1
+camera_param['fov'] = 70    # vertical fov in degrees
+camera_param['max_depth'] = camera_height
+camera_param['wrist_offset'] = [0.05, 0.0, 0.02]
 
 # Dataset
 # dataset = 'data/box/slim_100_0.pkl'
@@ -34,13 +34,13 @@ with open(dataset, 'rb') as f:
 
 # Initialize environment
 env = HammerEnv(task=task_all[0],
-                renders=True,
+                render=True,
                 use_rgb=True,
                 use_depth=False,
                 #
                 mu=0.5,
                 sigma=0.03,
-                camera_params=camera_params)
+                camera_param=camera_param)
 env.seed(0)
 env.reset()
 

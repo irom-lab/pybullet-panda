@@ -1,8 +1,9 @@
+import os
 import numpy as np
 from pathlib import Path 
-import os, sys
 
-from .util import sample_uniform, suppress_stdout
+from util.numeric import sample_uniform
+from util.misc import suppress_stdout
 from alano.geometry.transform import euler2quat, quatMult
 
 
