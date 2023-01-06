@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 from panda_gym.base_env import BaseEnv
 from alano.geometry.transform import quatMult, euler2quat
@@ -110,11 +111,15 @@ class GraspEnv(BaseEnv):
             self.reset_arm_joints_ik(ee_pos_before, ee_orn)
             self._p.stepSimulation()
         self.move_pose(ee_pos, absolute_global_quat=ee_orn, num_steps=300)
+        time.sleep(1)
         self.grasp(target_vel=-0.10)  # always close gripper
+        time.sleep(1)
         self.move_pose(ee_pos, absolute_global_quat=ee_orn,
                   num_steps=100)  # keep pose until gripper closes
+        time.sleep(1)
         self.move_pose(ee_pos_after, absolute_global_quat=ee_orn,
                   num_steps=150)  # lift
+        time.sleep(1)
 
         # Check if all objects removed
         self.clear_obj()
@@ -122,7 +127,7 @@ class GraspEnv(BaseEnv):
             reward = 1
         else:
             reward = 0
-        return np.array([]), reward, True, {}
+        return np.array([]), reward, True, {}   # s, reward, done, info
 
 
     def clear_obj(self, thres=0.03):

@@ -2,7 +2,7 @@ import os
 from queue import PriorityQueue
 import logging
 import numpy as np
-import pickle
+import pickle5 as pickle
 import torch
 
 
