@@ -2,7 +2,7 @@ import numpy as np
 
 from util.numeric import unnormalize_tanh
 from panda_gym.grasp_env import GraspEnv
-from alano.geometry.transform import quatMult, euler2quat, euler2quat
+from util.geom import quatMult, euler2quat, euler2quat
 
 class GraspMultiViewEnv(GraspEnv):
     def __init__(

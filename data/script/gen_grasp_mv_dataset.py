@@ -4,7 +4,7 @@ import random
 import numpy as np
 import itertools
 import math
-from alano.util.pickle import save_obj, load_obj
+from util.misc import save_obj, load_obj
 
 random.seed(1000)
 np.random.seed(1000)

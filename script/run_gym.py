@@ -14,7 +14,7 @@ from agent import get_agent
 
 # ENV
 from panda_gym import get_env, get_vec_env, get_vec_env_cfg
-from alano.train.vec_env import make_vec_envs
+from panda_gym.vec_env.vec_env import make_vec_envs
 
 
 def main(cfg):

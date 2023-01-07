@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import wandb
 
-from alano.algorithm.sac_mini import SAC_mini
-from alano.train.agent_base import AgentBase
+from agent.algorithm.sac_mini import SAC_mini
+from agent.agent_base import AgentBase
 
 
 class AgentPush(AgentBase):
