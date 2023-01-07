@@ -6,7 +6,7 @@ from .tool import Tool
 from util.numeric import unnormalize_tanh
 from util.misc import suppress_stdout
 from panda_gym.base_env import BaseEnv
-from alano.geometry.transform import quat2euler, euler2quat
+from util.geom import quat2euler, euler2quat
 
 
 class HammerEnv(BaseEnv):

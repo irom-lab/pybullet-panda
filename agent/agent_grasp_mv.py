@@ -8,9 +8,10 @@ import numpy as np
 import torch
 import wandb
 
-from alano.algorithm.sac_mini import SAC_mini
-from alano.train.agent_base import AgentBase
-from alano.util.pickle import save_obj
+from agent.algorithm.sac_mini import SAC_mini
+from agent.agent_base import AgentBase
+from util.misc import save_obj
+
 
 class AgentGraspMV(AgentBase):
     def __init__(self,

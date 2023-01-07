@@ -4,7 +4,7 @@ from pathlib import Path
 
 from util.numeric import sample_uniform
 from util.misc import suppress_stdout
-from alano.geometry.transform import euler2quat, quatMult
+from util.geom import euler2quat, quatMult
 
 
 class Tool():

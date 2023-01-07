@@ -2,7 +2,7 @@ import numpy as np
 
 from util.numeric import unnormalize_tanh
 from panda_gym.base_env import BaseEnv
-from alano.geometry.transform import quat2euler
+from util.geom import quat2euler
 
 
 class PushEnv(BaseEnv):

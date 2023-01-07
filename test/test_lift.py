@@ -1,7 +1,7 @@
 # Minimal working example
 import numpy as np
 from panda_gym.lift_env import LiftEnv
-from alano.geometry.transform import euler2quat
+from util.geom import euler2quat
 import pybullet as p
 import time
 import pickle

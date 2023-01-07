@@ -3,7 +3,7 @@ import numpy as np
 from .tool import Tool
 from util.numeric import unnormalize_tanh
 from panda_gym.base_env import BaseEnv
-from alano.geometry.transform import quat2euler, euler2quat, quat2rot, quatInverse, quatMult
+from util.geom import quat2euler, euler2quat, quat2rot, quatInverse, quatMult
 
 
 class LiftEnv(BaseEnv):

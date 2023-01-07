@@ -12,7 +12,7 @@ from agent.agent_base import AgentBase
 from agent.learner import get_learner
 from util.image import rotate_tensor
 
-from alano.train.scheduler import StepLRFixed
+from util.scheduler import StepLRFixed
 
 
 class AgentGrasp(AgentBase):

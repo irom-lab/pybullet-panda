@@ -2,12 +2,12 @@ import trimesh
 import random
 from shutil import copyfile
 import numpy as np
-from alano.geometry.urdf import save_simple_urdf
-from alano.geometry.mesh import watertight_simplify
 import pybullet as p
 import pickle
 import os
-from alano.util.pickle import save_obj
+
+from util.mesh import watertight_simplify, save_simple_urdf
+from util.misc import save_obj
 
 
 obj_id_list = [10,11,12,13,19,28,31,33,34,51,62,67,68,71,72,73,78,83,84,88,1,3,6,7,9,15,16,20,23,41,47,50,52,54,56,57,61,65,74,77,80,82,86,92,89,91,94,97,98]
