@@ -11,6 +11,7 @@ from util.image import rgba2rgb
 from util.geom import quat2rot, euler2quat, quatMult, log_rot, quatInverse, quat2euler
 from util.scaling import traj_time_scaling
 from util.bullet import full_jacob_pb, plot_frame_pb
+# from util.depth import 
 
 
 class BaseEnv():
@@ -705,6 +706,44 @@ class BaseEnv():
             out += [rgb]
         out = np.concatenate(out)
         return out
+
+
+    # def get_pixel_2_xy(self, camera_param):
+    #     far = 1000.0
+    #     near = 0.01
+    #     camera_pos = np.array(camera_param['pos'])
+    #     rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_param['euler']))
+    #     init_camera_vector = (0, 0, 1)  # z-axis
+    #     init_up_vector = (1, 0, 0)  # x-axis
+    #     camera_vector = rot_matrix.dot(init_camera_vector)
+    #     up_vector = rot_matrix.dot(init_up_vector)
+
+    #     view_matrix = self._p.computeViewMatrix(
+    #         camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
+    #     projection_matrix = self._p.computeProjectionMatrixFOV(
+    #         fov=camera_param['fov'],
+    #         aspect=camera_param['aspect'],
+    #         nearVal=near,
+    #         farVal=far)
+
+    #     _, _, _, depth_buffer, _ = self._p.getCameraImage(
+    #         camera_param['img_w'],
+    #         camera_param['img_h'],
+    #         view_matrix,
+    #         projection_matrix,
+    #         flags=self._p.ER_NO_SEGMENTATION_MASK)
+
+    #     # Assume top-down, positive x in the world is left in the image
+    #     # camera_target = np.copy(camera_pos)    # assume top down
+    #     # camera_target[-1] = 0
+    #     camera_param['far'] = far
+    #     camera_param['near'] = near
+    #     camera_param['cam_forward'] = (0.0, -1.0, -1.7881393432617188e-06)
+    #     camera_param['horizon'] = (20000.0, -0.0, 0.0)
+    #     camera_param['vertical'] = (0.0, 0.035762786865234375, -20000.0)
+    #     camera_param['dist'] = 0.4000000059604645 
+    #     camera_param['camera_target'] = (0.5, 0.0, 0.0)
+    #     return depth_pixel_2_xy(depth_buffer, param=camera_param)
 
 
     ################# Misc info #################
