@@ -239,8 +239,7 @@ class AgentBase():
 
     # === Models ===
     def save(self, metric=0, force_save=False):
-        assert metric is not None or force_save, \
-            "should provide metric of force save"
+        assert metric is not None or force_save, "should provide metric of force save"
         save_current = True
         if force_save or self.pq_top_k.qsize() < self.save_top_k:
             self.pq_top_k.put((metric, self.cnt_step))

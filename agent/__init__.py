@@ -1,6 +1,7 @@
 from .agent_grasp import AgentGrasp
 from .agent_grasp_mv import AgentGraspMV
 from .agent_push import AgentPush
+from .agent_grasp_eq import AgentGraspEq
 
 
 def get_agent(name):
@@ -8,6 +9,8 @@ def get_agent(name):
         return AgentGrasp
     elif name == 'AgentGraspMV':
         return AgentGraspMV
+    elif name == 'AgentGraspEq':
+        return AgentGraspEq
     elif name == 'AgentPush':
         return AgentPush
     else:
