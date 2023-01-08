@@ -1,5 +1,5 @@
 import torch
-from panda_gym.vec_env.vec_env import VecEnvBase
+from panda_gym.util.vec_env import VecEnvBase
 
 
 class VecEnvPanda(VecEnvBase):
