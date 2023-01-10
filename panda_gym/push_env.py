@@ -1,11 +1,11 @@
 import numpy as np
 
 from util.numeric import unnormalize_tanh
-from panda_gym.base_env import BaseEnv
+from panda_gym.panda_env import PandaEnv
 from util.geom import quat2euler
 
 
-class PushEnv(BaseEnv):
+class PushEnv(PandaEnv):
     def __init__(
         self,
         task=None,

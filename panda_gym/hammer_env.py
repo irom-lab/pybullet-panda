@@ -5,11 +5,11 @@ from os.path import dirname
 from .tool import Tool
 from util.numeric import unnormalize_tanh
 from util.misc import suppress_stdout
-from panda_gym.base_env import BaseEnv
+from panda_gym.panda_env import PandaEnv
 from util.geom import quat2euler, euler2quat
 
 
-class HammerEnv(BaseEnv):
+class HammerEnv(PandaEnv):
     def __init__(
         self,
         task=None,

@@ -1,8 +1,8 @@
 import numpy as np
 
-from panda_gym.base_env import unnormalize_tanh
 from panda_gym.grasp_mv_env import GraspMultiViewEnv
 from util.geom import quatMult, euler2quat, euler2quat, quat2euler
+from util.numeric import unnormalize_tanh
 
 
 class GraspMultiViewRandomEnv(GraspMultiViewEnv):
