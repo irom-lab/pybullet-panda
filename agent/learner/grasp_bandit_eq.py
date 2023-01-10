@@ -12,7 +12,7 @@ from network.encoder import Encoder
 from network.fcn import FCN
 from network.mlp import MLP
 from util.image import rotate_tensor
-from util.torch import save_model
+from util.network import save_model
 
 
 class GraspBanditEq():
@@ -36,15 +36,12 @@ class GraspBanditEq():
         # Parameters - grasping
         self.num_theta = cfg.num_theta
         self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
-        self.delta_z = 0.03
-        self.max_z = 0.30
-        self.min_ee_z = 0.15
-        self.max_obj_height = 0.05  #?
-        self.x_offset = 0.5 # TODO: move to env
+        self.min_z = 0.25
+        self.max_z = 0.40
 
-        # Parameters - pixel to xy conversion
-        self.p2x = np.linspace(0.10, -0.10, num=cfg.img_w, endpoint=True)
-        self.p2y = np.linspace(-0.10, 0.10, num=cfg.img_h, endpoint=True)
+        # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
+        self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
+        self.p2y = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_h, endpoint=True)
 
         # Parameters - POEM
         self.action_dim = 2
@@ -55,8 +52,7 @@ class GraspBanditEq():
 
 
     def parameters(self):
-        raise NotImplementedError
-        # return self.action_decoder.parameters()
+        return self.action_decoder.parameters() # ignore other ones for now
 
 
     def build_network(self, cfg, build_optimizer=True, verbose=True):
@@ -64,12 +60,16 @@ class GraspBanditEq():
         assert img_size == cfg.img_w
         
         # Action decoder - FCN - (obs, latent_action) -> affordance
+        if verbose:
+            logging.info('Action decoder: FCN')
         self.action_decoder = FCN(inner_channels=cfg.action_decoder.inner_channel_size,
                                   in_channels=self.obs_channel_size+self.latent_action_size,
                                   out_channels=1,
                                   img_size=img_size).to(self.device)
         
         # State encoder - CNN+MLP - obs -> latent_state
+        if verbose:
+            logging.info('State encoder: Encoder (CNN+MLP)')
         self.state_encoder = Encoder(in_channels=self.obs_channel_size,
                                      img_sz=img_size,
                                      kernel_sz=cfg.state_encoder.kernel_size,
@@ -85,12 +85,16 @@ class GraspBanditEq():
                                      verbose=True)
         
         # Latent policy - MLP - latent_state -> latent_action
+        if verbose:
+            logging.info('Latent policy: MLP')
         self.latent_policy = MLP(layer_size=[self.latent_state_size,
-                                             *self.latent_policy.hidden_dim,
+                                             *cfg.latent_policy.hidden_dim,
                                              self.latent_action_size]
                                 ).to(self.device)
         
         # Action encoder - CNN+MLP - (obs, action) -> latent_action
+        if verbose:
+            logging.info('Action encoder: Encoder (CNN+MLP)')
         self.action_encoder = Encoder(in_channels=self.obs_channel_size+self.action_dim,
                                       img_sz=img_size,
                                       kernel_sz=cfg.action_encoder.kernel_size,
@@ -185,7 +189,7 @@ class GraspBanditEq():
             # Add latent action to channel dimension of obs
             latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
             latent_action = latent_action.repeat(1, 1, H, W)
-            obs_with_latent_action = torch.cat((obs, latent_action), dim=1)
+            obs_with_latent_action = torch.cat((state_rot_all, latent_action), dim=1)
 
             # Pass through action decoder to get affordance map
             fcn_pred = self.action_decoder(obs_with_latent_action)
@@ -210,18 +214,24 @@ class GraspBanditEq():
         # Find the target z height
         state_rot_all = state_rot_all.view(N, self.num_theta, H, W)
         norm_z = state_rot_all[torch.arange(N), pt, py, px].detach().cpu().numpy()
-        z_all = norm_z*self.max_z  # unnormalize
-        z_target_all = np.maximum(0, z_all - self.delta_z)  # clip
-        z_target_ee_all = z_target_all + self.min_ee_z
+        z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
         # Rotate into local frame
-        xy_rot = np.tile(np.array([[np.cos(theta), -np.sin(theta)],
-                                   [np.sin(theta), np.cos(theta)]])[None], 
-                        (N, 1, 1))
-        xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
-        xy_all[:,0] += self.x_offset
-        output = np.hstack((xy_all, 
-                            z_target_ee_all[:,None], 
+        # logging.info(f'xy before rotation: {xy_all[:2]}')
+        # logging.info(f'theta_all: {theta_all[:2]}')
+        xy_all_rotated = np.empty((0,2))
+        for xy, theta in zip(xy_all, theta_all):
+            xy_orig = np.array([[np.cos(theta), -np.sin(theta)],
+                                [np.sin(theta), np.cos(theta)]]).\
+                         dot(xy)
+            xy_all_rotated = np.vstack((xy_all_rotated, xy_orig))
+        # xy_rot = np.tile(np.array([[np.cos(theta), -np.sin(theta)],
+        #                            [np.sin(theta), np.cos(theta)]])[None], 
+        #                 (N, 1, 1))
+        # xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
+        # logging.info(f'xy after rotation: {xy_all_rotated[:2]}')
+        output = np.hstack((xy_all_rotated, 
+                            z_all[:,None], 
                             theta_all[:,None],
                             py[:,None], 
                             px[:,None]))
@@ -272,13 +282,13 @@ class GraspBanditEq():
             param.requires_grad = True
 
         # Extract from batch
-        depth_batch, ground_truth_batch, mask_batch, action_batch = batch
+        obs_batch, ground_truth_batch, mask_batch, action_batch, _ = batch
 
         # Add action to channel dimension of obs
-        _, _, H, W = depth_batch.shape
+        _, _, H, W = obs_batch.shape
         action_batch = action_batch.unsqueeze(-1).unsqueeze(-1)
         action_batch = action_batch.repeat(1, 1, H, W)
-        obs_with_action = torch.cat((depth_batch, action_batch), dim=1)
+        obs_with_action = torch.cat((obs_batch, action_batch), dim=1)
 
         # Pass obs and action through action_encoder
         latent_action = self.action_encoder(obs_with_action)
@@ -288,7 +298,7 @@ class GraspBanditEq():
         # Add latent action to channel dimension of obs
         latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
         latent_action = latent_action.repeat(1, 1, H, W)
-        obs_with_latent_action = torch.cat((depth_batch, latent_action), dim=1)
+        obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
         # TODO: gradient issue with depth_batch?
         
         # Pass through action decoder to get affordance map
@@ -325,13 +335,13 @@ class GraspBanditEq():
             param.requires_grad = False
 
         # Extract from batch
-        depth_batch, ground_truth_batch, mask_batch, action_batch = batch
-        _, _, H, W = depth_batch.shape
+        obs_batch, ground_truth_batch, mask_batch, action_batch, reward_batch = batch
+        _, _, H, W = obs_batch.shape
 
         ################### ce loss ###################
 
         # Pass obs through state encoder
-        latent_state = self.state_encoder(depth_batch)    # N x latent_state_size
+        latent_state = self.state_encoder(obs_batch)    # N x latent_state_size
         
         # Pass latent state through latent policy to get latent action
         latent_action = self.latent_policy(latent_state)  # N x latent_action_size
@@ -339,7 +349,7 @@ class GraspBanditEq():
         # Add latent action to channel dimension of obs
         latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
         latent_action = latent_action.repeat(1, 1, H, W)
-        obs_with_latent_action = torch.cat((depth_batch, latent_action), dim=1)
+        obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
         
         # Pass obs and latent action through action decoder
         pred_train_batch = self.action_decoder(obs_with_latent_action)
@@ -349,16 +359,15 @@ class GraspBanditEq():
 
         ################### alignment loss ###################
     
-        # TODO: figure out the pairs in buffer
-        # data at the same index in 1 and 2 are positive pairs, while data at different indices are negative pairs
-        obs_1, actions_1 = data[0]
-        obs_2, actions_2 = data[1]
-
-        # Convert all to tensors and push to device
-        # obs_1 = torch.from_numpy(obs_1).float().to(device).permute(0,3,1,2)
-        # obs_2 = torch.from_numpy(obs_2).float().to(device).permute(0,3,1,2)
-        # actions_1 = torch.tensor(actions_1).int().to(device)
-        # actions_2 = torch.tensor(actions_2).int().to(device)
+        # Get indices of batch where reward is 1
+        indices = torch.where(reward_batch == 1)[0]
+        # split indices into two groups randomly, with equal number of elements
+        indices_1, indices_2 = torch.split(indices, len(indices) // 2)
+        # get obs and actions for each group
+        obs_1 = obs_batch[indices_1]
+        obs_2 = obs_batch[indices_2]
+        actions_1 = action_batch[indices_1]
+        actions_2 = action_batch[indices_2] 
 
         # Get latent state and then similarity matrix
         latent_state_1 = self.state_encoder(obs_1)
@@ -379,6 +388,7 @@ class GraspBanditEq():
 
         # Normalize each latent action 1 and 2 to have norm=1
         #! right now we are treating latent action as a continuous vector, instead of logits in the jumping task where we normalize them with softmax
+        #! TODO: check latent action distances
         latent_action_1_normalized = F.normalize(latent_action_1, p=2, dim=1)
         latent_action_2_normalized = F.normalize(latent_action_2, p=2, dim=1)
 
@@ -386,14 +396,15 @@ class GraspBanditEq():
         cost_matrix = calculate_action_cost_matrix(latent_action_1_normalized, 
                                                    latent_action_2_normalized, 
                                                    hardcode_encoder=self.flag_use_pse)
-        metric_vals = metric_fixed_point(cost_matrix, self.poem_gamma, device=self.device)
+        # metric_vals = metric_fixed_point(cost_matrix, self.poem_gamma, device=self.device)
+        metric_vals = cost_matrix   # since grasping is bandit
 
         # Get contrastive loss
         alignment_loss = contrastive_loss(similarity_matrix,
-                                        metric_vals,
-                                        self.cfg_poem.temperature,
-                                        coupling_temperature=self.cfg_poem.coupling_temperature,
-                                        use_coupling_weights=self.cfg_poem.use_coupling_weights)    
+                                          metric_vals,
+                                          self.cfg_poem.temperature,
+                                          coupling_temperature=self.cfg_poem.coupling_temperature,
+                                          use_coupling_weights=self.cfg_poem.use_coupling_weights) 
 
         ################### TODO: try L1 loss ###################
 		# l1_loss = compute_l1_loss(action_encoder, 
@@ -401,11 +412,11 @@ class GraspBanditEq():
 
         ################### update ###################
         combined_loss = ce_loss + self.cfg_poem.alignment_loss_weight*alignment_loss 
-        # + cfg.l1_reg_coeff*l1_loss  
 
         # Zero gradients
         self.state_encoder.zero_grad()
         self.latent_policy.zero_grad()
+        self.action_encoder.zero_grad()
         self.action_decoder.zero_grad()
 
         # mask gradient for non-selected pixels
@@ -418,6 +429,8 @@ class GraspBanditEq():
                                        self.cfg_gradient_clip.state_encoder)
         torch.nn.utils.clip_grad_norm_(self.latent_policy.parameters(), 
                                        self.cfg_gradient_clip.latent_policy)
+        torch.nn.utils.clip_grad_norm_(self.action_encoder.parameters(), 
+                                       self.cfg_gradient_clip.action_encoder)
         self.state_encoder_optimizer.step()
         self.latent_policy_optimizer.step()
         self.action_encoder_optimizer.step()
@@ -425,7 +438,7 @@ class GraspBanditEq():
 
 
     def update_hyper_param(self):
-        raise NotImplementedError
+        pass
 
 
     def load_optimizer_state(self, ):
@@ -433,6 +446,7 @@ class GraspBanditEq():
 
 
     def save(self, step, logs_path, max_model=None):
+        logging.info('Saving model at step %d', step)
         save_model(self.state_encoder, os.path.join(logs_path, 'critic'), 
                         'state_encoder', step, max_model)
         save_model(self.latent_policy, os.path.join(logs_path, 'critic'), 
@@ -449,4 +463,4 @@ class GraspBanditEq():
             path = os.path.join(logs_path, 'critic', f'{name}-{step}.pth')
             if os.path.exists(path):
                 os.remove(path)
-            # logging.info("Remove {}".format(path))
+            logging.info("Remove {}".format(path))

@@ -7,13 +7,16 @@ import numpy as np
 
 from network.fcn import FCN
 from util.image import rotate_tensor
-from util.torch import save_model
+from util.network import save_model
 
 
 class GraspBandit():
     def __init__(self, cfg):
         self.device = cfg.device
+        self.rng = np.random.default_rng(seed=cfg.seed)
         self.eval = cfg.eval
+
+        # Learning rate, schedule
         if not self.eval:
             self.lr = cfg.lr
             self.lr_schedule = cfg.lr_schedule
@@ -21,18 +24,19 @@ class GraspBandit():
                 self.lr_period = cfg.lr_period
                 self.lr_decay = cfg.lr_decay
                 self.lr_end = cfg.lr_end
-        self.rng = np.random.default_rng(seed=cfg.seed)
 
-        # Constants
+        # Grdient clipping
+        self.gradient_clip = cfg.gradient_clip
+
+        # Parameters - grasping
         self.num_theta = cfg.num_theta
         self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
-        self.delta_z = 0.03
-        self.min_ee_z = 0.15
-        self.max_obj_height = 0.05  #?
+        self.min_z = cfg.min_depth
+        self.max_z = cfg.max_depth
 
-        # Pixel to xy conversion
-        self.p2x = np.linspace(0.10, -0.10, num=cfg.img_w, endpoint=True)
-        self.p2y = np.linspace(-0.10, 0.10, num=cfg.img_h, endpoint=True)
+        # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
+        self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
+        self.p2y = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_h, endpoint=True)
 
 
     def parameters(self):
@@ -42,7 +46,7 @@ class GraspBandit():
     def build_network(self, cfg, build_optimizer=True, verbose=True):
         img_size = cfg.img_h
         assert img_size == cfg.img_w
-        self.fcn = FCN(inner_channels=cfg.inner_channels,
+        self.fcn = FCN(inner_channels=cfg.inner_channel_size,
                        in_channels=cfg.in_channels,
                        out_channels=cfg.out_channels,
                        img_size=img_size).to(self.device)
@@ -103,28 +107,38 @@ class GraspBandit():
             # (pt, py, px) = np.unravel_index(np.argmax(fcn_pred, axis=1),
             #                                 fcn_pred.shape)  #? batch
         else:
-            pt = self.rng.integers(0, self.num_theta, size=N) # exlusive
+            pt = self.rng.integers(0, self.num_theta, size=N)   # exlusive
             py = self.rng.integers(0, H, size=N)
             px = self.rng.integers(0, W, size=N)
 
         # Convert pixel to x/y
-        xy_all = np.concatenate((self.p2x[px][None], self.p2y[py][None])).T 
+        xy_all = np.concatenate((self.p2x[px][None], self.p2y[py][None])).T
         theta_all = self.thetas[pt]
 
         # Find the target z height
         state_rot_all = state_rot_all.view(N, self.num_theta, H, W)
         norm_z = state_rot_all[torch.arange(N), pt, py, px].detach().cpu().numpy()
-        z_all = norm_z*0.3  # unnormalize   # TODO
-        z_target_all = np.maximum(0, z_all - self.delta_z)  # clip
-        z_target_ee_all = z_target_all + self.min_ee_z
+        z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
         # Rotate into local frame
-        xy_rot = np.tile(np.array([[np.cos(theta), -np.sin(theta)],
-                                   [np.sin(theta), np.cos(theta)]])[None], 
-                        (N, 1, 1))
-        xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
-        xy_all[:,0] += 0.5
-        output = np.hstack((xy_all, z_target_ee_all[:,None], theta_all[:,None], py[:,None], px[:,None]))
+        # logging.info(f'xy before rotation: {xy_all[:2]}')
+        # logging.info(f'theta_all: {theta_all[:2]}')
+        xy_all_rotated = np.empty((0,2))
+        for xy, theta in zip(xy_all, theta_all):
+            xy_orig = np.array([[np.cos(theta), -np.sin(theta)],
+                                [np.sin(theta), np.cos(theta)]]).\
+                         dot(xy)
+            xy_all_rotated = np.vstack((xy_all_rotated, xy_orig))
+        # xy_rot = np.tile(np.array([[np.cos(theta), -np.sin(theta)],
+        #                            [np.sin(theta), np.cos(theta)]])[None], 
+        #                 (N, 1, 1))
+        # xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
+        # logging.info(f'xy after rotation: {xy_all_rotated[:2]}')
+        output = np.hstack((xy_all_rotated, 
+                            z_all[:,None], 
+                            theta_all[:,None],
+                            py[:,None], 
+                            px[:,None]))
         return output
 
 
@@ -149,7 +163,7 @@ class GraspBandit():
 
         # Update params using clipped gradients
         train_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.fcn.parameters(), 10)
+        torch.nn.utils.clip_grad_norm_(self.fcn.parameters(), self.gradient_clip)
         self.optimizer.step()
         return train_loss.detach().cpu().numpy()
 
@@ -159,10 +173,11 @@ class GraspBandit():
 
 
     def load_optimizer_state(self, ):
-        pass
+        raise NotImplementedError
 
 
     def save(self, step, logs_path, max_model=None):
+        logging.info('Saving model at step %d', step)
         path_c = os.path.join(logs_path, 'critic')
         return save_model(self.fcn, path_c, 'critic', step, max_model)
 
@@ -170,6 +185,7 @@ class GraspBandit():
     def remove(self, step, logs_path):
         path_c = os.path.join(logs_path, 'critic',
                               'critic-{}.pth'.format(step))
-        # logging.info("Remove {}".format(path_c))
         if os.path.exists(path_c):
             os.remove(path_c)
+            logging.info("Remove {}".format(path_c))
+
