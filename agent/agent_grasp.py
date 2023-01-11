@@ -25,7 +25,7 @@ class AgentGrasp(AgentBase):
         # Learner
         self.learner_name = cfg.learner.name
         self.learner = get_learner(self.learner_name)(cfg.learner)
-        self.learner.build_network(cfg.learner.arch, verbose=verbose)
+        # self.learner.build_network(cfg.learner.arch, verbose=verbose)
         self.module_all = [self.learner]    # for saving models
 
         # Utility - helper functions for envs

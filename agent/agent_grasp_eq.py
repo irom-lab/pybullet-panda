@@ -22,26 +22,11 @@ class AgentGraspEq(AgentGrasp):
 
 
     def store_cfg(self, cfg):
-        
-        self.cfg_action_decoder_training = cfg.action_decoder_training
+        super().store_cfg(cfg)
         self.target_reward = cfg.target_reward
         self.action_dim = 2
 
-        # self.img_h = cfg.learner.img_h
-        # self.img_w = cfg.learner.img_w
-        # self.max_sample_steps = cfg.max_sample_steps
-        # self.batch_size = cfg.batch_size
-        # self.memory_capacity = cfg.memory_capacity
-        # self.update_freq = cfg.update_freq
-        # self.num_update = max(1, int(cfg.replay_ratio*self.update_freq/self.batch_size))
-        # self.check_freq = cfg.check_freq
-        # self.num_warmup_step_percentage = cfg.num_warmup_step_percentage
-        # self.num_episode_per_eval = cfg.num_eval_episode
-        # self.cfg_eps = cfg.eps
-        # self.num_affordance = cfg.num_affordance
 
-
-    # TODO: move to base class
     def learn(self, tasks=None, 
                     memory=None,
                     policy_path=None, 
@@ -75,11 +60,12 @@ class AgentGraspEq(AgentGrasp):
                                         endValue=self.cfg_eps.end,
                                         stepSize=self.cfg_eps.step)
 
-        # Run initial steps
+        # Run initial steps with random steps
         self.set_train_mode()
         if self.num_warmup_step_percentage > 0:
             num_warmup_step = int(self.max_sample_steps*self.num_warmup_step_percentage)
-            self.cnt_step, _ = self.run_steps(num_step=num_warmup_step)
+            self.cnt_step, _ = self.run_steps(num_step=num_warmup_step,
+                                              force_random=True)
         logging.info(f'Warmed up with {self.cnt_step} steps!')
 
         # flag for checking whether training the action decoder or training the latent policy plus the state encoder - initially we train the action decoder
@@ -127,12 +113,13 @@ class AgentGraspEq(AgentGrasp):
                 # Clear GPU cache
                 torch.cuda.empty_cache()
 
-                # Evaluate
+                # Switch to evaluation
                 if cnt_opt % self.check_freq == 0 and cnt_opt > 0:
                     self.set_eval_mode()
 
             # Evaluate
             else:
+                logging.info(f'Evaluating at step {self.cnt_step}...')
                 num_episode_run, _ = self.run_steps(num_episode=self.num_episode_per_eval)
                 eval_reward_cumulative = self.eval_reward_cumulative_all / num_episode_run
                 if verbose:
@@ -146,6 +133,7 @@ class AgentGraspEq(AgentGrasp):
 
                 # Check if target reward is reached
                 flag_train_action_decoder = eval_reward_cumulative < self.target_reward
+                logging.info(f'Training action decoder next? {flag_train_action_decoder}')
 
                 # Saving model (and replay buffer)
                 if self.save_metric == 'cum_reward':
@@ -154,7 +142,8 @@ class AgentGraspEq(AgentGrasp):
                     raise NotImplementedError
 
                 # Generate sample affordance map - samples can be random - so not necessarily the best one
-                # self.save_sample_affordance(num=self.num_affordance)
+                with torch.no_grad():
+                    self.save_sample_affordance(num=self.num_affordance)
 
                 # Save training details
                 torch.save(
@@ -171,8 +160,8 @@ class AgentGraspEq(AgentGrasp):
         best_reward = np.max([q[0] for q in self.pq_top_k.queue]) # yikes...
         logging.info('Saving best path {} with reward {}!'.format(best_path, best_reward))
 
-        # Policy, memory, optimizer
-        return best_path, deepcopy(self.memory), self.learner.get_optimizer_state()
+        # Policy
+        return best_path
 
 
     # === Replay and update ===
@@ -180,6 +169,8 @@ class AgentGraspEq(AgentGrasp):
         # Sample indices
         if batch_size is None:
             batch_size = self.batch_size
+
+        # Train by sampling from buffer
         buffer_size = self.depth_buffer.shape[0]
         sample_inds = random.sample(range(buffer_size), k=batch_size)
         
@@ -191,11 +182,13 @@ class AgentGraspEq(AgentGrasp):
         mask_batch = self.mask_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True)  # NxHxW
         
-        # Get action with indices
+        # Get action and reward with indices
         action_batch = self.action_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True)  # Nx2
+        reward_batch = self.reward_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # Nx1
         
-        return (depth_batch, ground_truth_batch, mask_batch, action_batch)
+        return (depth_batch, ground_truth_batch, mask_batch, action_batch, reward_batch)
 
 
     def store_transition(self, s, a, r, s_, done, info):
@@ -207,7 +200,8 @@ class AgentGraspEq(AgentGrasp):
 
         # Extract action
         _, _, _, theta, py, px = a
-        action_tensor = torch.tensor([py, px]).unsqueeze(0)
+        action_tensor = torch.tensor([py, px]).unsqueeze(0).float()
+        reward_tensor = torch.tensor([r])
 
         # Convert depth to tensor
         new_depth = s.detach().to('cpu')
@@ -240,7 +234,9 @@ class AgentGraspEq(AgentGrasp):
             #     (self.recency_buffer, np.ones(
             #         (num_new)) * recency))[:self.memory_capacity]
             self.action_buffer = torch.cat(
-                (self.mask_buffer, action_tensor))[:self.memory_capacity]
+                (self.action_buffer, action_tensor))[:self.memory_capacity]
+            self.reward_buffer = torch.cat(
+                (self.reward_buffer, reward_tensor))[:self.memory_capacity]
         else:
             # Replace older ones
             replace_ind = np.random.choice(self.memory_capacity,
@@ -254,11 +250,41 @@ class AgentGraspEq(AgentGrasp):
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
             self.action_buffer[replace_ind] = action_tensor
+            self.reward_buffer[replace_ind] = reward_tensor
 
 
     def reset_memory(self, memory):
-        """Also building action buffer"""
+        """Also building action and reward buffer"""
         super().reset_memory(memory)
 
         self.action_buffer = torch.empty((0, self.action_dim)).float().to('cpu')
-        logging.info('Built action buffer!')
+        self.reward_buffer = torch.empty((0)).float().float().to('cpu')
+        logging.info('Built action and reward buffer!')
+
+
+    def save_sample_affordance(self, num):
+        for ind in range(num):
+            img_ind = self.rng.integers(0, self.depth_buffer.shape[0])
+            img = self.depth_buffer[img_ind]
+            img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
+            pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
+            img_path_prefix = os.path.join(self.img_folder, str(self.cnt_step))
+
+            depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
+            depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)
+            img_rgb = Image.fromarray(depth_8bit, mode='RGB')
+            img_rgb.save(img_path_prefix + f'_{ind}_rgb.png')
+
+            cmap = plt.get_cmap('jet')
+            pred_detach = (torch.sigmoid(pred)).detach().cpu().numpy()
+            pred_detach = (pred_detach - np.min(pred_detach)) / (
+                np.max(pred_detach) - np.min(pred_detach))  # normalize
+            pred_cmap = cmap(pred_detach)
+            pred_cmap = (np.delete(pred_cmap, 3, 2) * 255).astype('uint8')
+            img_heat = Image.fromarray(pred_cmap, mode='RGB')
+            img_heat.save(img_path_prefix + f'_{ind}_heatmap.png')
+
+            img_overlay = Image.blend(img_rgb, img_heat, alpha=.5)
+            img_overlay.save(img_path_prefix + f'_{ind}_overlay.png')
+
+

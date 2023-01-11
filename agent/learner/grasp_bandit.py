@@ -80,20 +80,22 @@ class GraspBandit():
         self.criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
 
 
-    def forward(self, state, append=None, flag_random=False):
-        # TODO: random flag for each env
+    def forward(self, obs, append=None, flag_random=False):
         # Assume depth only
-        assert state.shape[1] == 1
-        N,_,H,W = state.shape
+        assert obs.shape[1] == 1
+        N,_,H,W = obs.shape
+        
+        # Set to eval mode for batchnorm
+        self.fcn.eval()
 
-        # Rotate image
-        state_rot_all = torch.empty((N, 0, H, W)).to(state.device)
+        # Rotate obs to different thetas (yaw angles) and add to batch dimension
+        state_rot_all = torch.empty((N, 0, H, W)).to(obs.device)
         for theta in self.thetas:
-            state_rotated = rotate_tensor(state, theta=theta)
+            state_rotated = rotate_tensor(obs, theta=theta)
             state_rot_all = torch.cat((state_rot_all, state_rotated), dim=1)
-        # Combine N and C
         state_rot_all = state_rot_all.view(N*self.num_theta, 1, H, W)
 
+        # Random sampling pixel or forward pass
         if self.eval or not flag_random:
             fcn_pred = self(state_rot_all, append=append)
             # Uncombine N and C
@@ -121,19 +123,22 @@ class GraspBandit():
         z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
         # Rotate into local frame
-        # logging.info(f'xy before rotation: {xy_all[:2]}')
-        # logging.info(f'theta_all: {theta_all[:2]}')
-        xy_all_rotated = np.empty((0,2))
-        for xy, theta in zip(xy_all, theta_all):
-            xy_orig = np.array([[np.cos(theta), -np.sin(theta)],
-                                [np.sin(theta), np.cos(theta)]]).\
-                         dot(xy)
-            xy_all_rotated = np.vstack((xy_all_rotated, xy_orig))
+        # xy_all_rotated = np.empty((0,2))
+        # for xy, theta in zip(xy_all, theta_all):
+        #     xy_orig = np.array([[np.cos(theta), -np.sin(theta)],
+        #                         [np.sin(theta), np.cos(theta)]]).\
+        #                  dot(xy)
+        #     xy_all_rotated = np.vstack((xy_all_rotated, xy_orig))
+        rot_all = np.concatenate((
+            np.concatenate((np.cos(theta_all)[:,None,None], 
+                            np.sin(-theta_all)[:,None,None]), axis=-1),
+            np.concatenate((np.sin(theta_all)[:,None,None], 
+                            np.cos(theta_all)[:,None,None]), axis=-1)), axis=1)
+        xy_all_rotated = np.matmul(rot_all, xy_all[:,:,None])[:,:,0]
         # xy_rot = np.tile(np.array([[np.cos(theta), -np.sin(theta)],
         #                            [np.sin(theta), np.cos(theta)]])[None], 
         #                 (N, 1, 1))
         # xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
-        # logging.info(f'xy after rotation: {xy_all_rotated[:2]}')
         output = np.hstack((xy_all_rotated, 
                             z_all[:,None], 
                             theta_all[:,None],
@@ -150,6 +155,10 @@ class GraspBandit():
 
 
     def update(self, batch):
+        # Set to training mode for batchnorm 
+        self.fcn.train()
+        
+        # Unpack batch
         depth_train_batch, ground_truth_batch, mask_train_batch = batch
 
         # Forward, get loss, zero gradients
