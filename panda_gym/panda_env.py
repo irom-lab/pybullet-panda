@@ -87,6 +87,9 @@ class PandaEnv():
         # Default joint angles
         self._default_joint_angles = [0, -0.35, 0, -2., 0, 3.483, 0.785, 0.0, 0.0]
 
+        # EE offset from finger center
+        self.ee_finger_offset = 0.15
+
 
     def seed(self, seed=0):
         """Set when vec_env constructed"""

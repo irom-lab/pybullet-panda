@@ -1,3 +1,5 @@
+# Modified from https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/pointCloudFromCameraImage.py
+
 import pybullet as p
 import math
 import numpy as np

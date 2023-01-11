@@ -1,11 +1,11 @@
 import numpy as np
 import time
 
-from panda_gym.base_env import BaseEnv
+from panda_gym.panda_env import PandaEnv
 from util.geom import quatMult, euler2quat
 
 
-class GraspEnv(BaseEnv):
+class GraspEnv(PandaEnv):
     def __init__(
         self,
         task=None,
@@ -14,6 +14,8 @@ class GraspEnv(BaseEnv):
         #
         mu=0.5,
         sigma=0.03,
+        x_offset=0.5,
+        grasp_z_offset=-0.03,
     ):
         """
         """
@@ -24,6 +26,8 @@ class GraspEnv(BaseEnv):
         )
         self._mu = mu
         self._sigma = sigma
+        self._x_offset = x_offset
+        self._grasp_z_offset = grasp_z_offset  # grasp happens at the pixel depth plus this offset
 
         # Object id
         self._obj_id_list = []
@@ -32,6 +36,14 @@ class GraspEnv(BaseEnv):
         # Constants
         self.initial_ee_pos_before_img = np.array([0.3, -0.5, 0.25])
         self.initial_ee_orn = np.array([1.0, 0.0, 0.0, 0.0])  # straight down
+
+        # Default task
+        if task is None:
+            self.task = {}
+            self.task['obj_path'] = 'data/sample/mug/3.urdf'
+            self.task['obj_pos'] = [0.45, 0.05, 0.15]
+            self.task['obj_quat'] = [0, 0, 0, 1]
+            self.task['global_scaling'] = 1.0
 
 
     @property
@@ -61,10 +73,13 @@ class GraspEnv(BaseEnv):
         ]
 
 
-    def reset_task(self, task):
+    def reset_task(self, task=None):
         """
         Reset the task for the environment. Load object - task
         """
+        if task is None:
+            task = self.default_task
+
         # Clean table
         for obj_id in self._obj_id_list:
             self._p.removeBody(obj_id)
@@ -74,10 +89,10 @@ class GraspEnv(BaseEnv):
         self._obj_initial_pos_list = {}
 
         # Load urdf
-        obj_path = 'data/sample/mug/3.urdf'
-        obj_id = self._p.loadURDF(obj_path,
-                                  basePosition=[0.55, 0.05, 0.15],
-                                  baseOrientation=[0, 0, 0, 1])
+        obj_id = self._p.loadURDF(task['obj_path'],
+                                  basePosition=task['obj_pos'],
+                                  baseOrientation=task['obj_quat'],
+                                  globalScaling=task['global_scaling'])
         self._obj_id_list += [obj_id]
 
         # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
@@ -104,6 +119,8 @@ class GraspEnv(BaseEnv):
 
         # Execute, reset ik on top of object, reach down, grasp, lift, check success
         ee_pos = action[:3]
+        ee_pos[0] += self._x_offset
+        ee_pos[2] = np.maximum(0, ee_pos[2] + self.ee_finger_offset + self._grasp_z_offset)
         ee_pos_before = ee_pos + np.array([0, 0, 0.10]) 
         ee_pos_after = ee_pos + np.array([0, 0, 0.05])
         ee_orn = quatMult(euler2quat([action[3], 0., 0.]), self.initial_ee_orn)
@@ -111,15 +128,11 @@ class GraspEnv(BaseEnv):
             self.reset_arm_joints_ik(ee_pos_before, ee_orn)
             self._p.stepSimulation()
         self.move_pose(ee_pos, absolute_global_quat=ee_orn, num_steps=300)
-        time.sleep(1)
         self.grasp(target_vel=-0.10)  # always close gripper
-        time.sleep(1)
         self.move_pose(ee_pos, absolute_global_quat=ee_orn,
                   num_steps=100)  # keep pose until gripper closes
-        time.sleep(1)
         self.move_pose(ee_pos_after, absolute_global_quat=ee_orn,
                   num_steps=150)  # lift
-        time.sleep(1)
 
         # Check if all objects removed
         self.clear_obj()

@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 import logging
 
@@ -132,29 +131,3 @@ class FCN(nn.Module):
         x = self.up_layer_2(x)
         x = self.up_layer_3(x)
         return self.output_layer(x)
-
-
-# class MLP(nn.Module):
-#     def __init__(self, hidden_size=1000, img_size=10):
-#         super(MLP, self).__init__()
-#         input_size = img_size**2
-#         output_size = img_size**2
-
-#         self.layers = nn.Sequential(
-#             nn.Linear(input_size, hidden_size, bias=True), nn.ReLU(),
-#             nn.Linear(hidden_size, output_size, bias=True), nn.Softmax())
-
-
-#     def forward(self, x, append=None):
-#         # Assume input NHW
-
-#         # Flatten
-#         N, H, W = x.shape
-#         x = x.view(N, -1)
-
-#         # MLP
-#         x = self.layers(x)
-
-#         # Back to image
-#         x = x.view(N, H, W)
-#         return x

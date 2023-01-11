@@ -88,9 +88,9 @@ def main(cfg):
     # Agent
     logging.info("== Agent Information ==")
     agent = get_agent(cfg.agent)(cfg.policy, venv)
-    logging.info('Total parameters in policy: {}'.format(
-        sum(p.numel() for p in agent.learner.parameters()
-            if p.requires_grad)))
+    # logging.info('Total parameters in policy: {}'.format(
+    #     sum(p.numel() for p in agent.learner.parameters()
+    #         if p.requires_grad)))
     logging.info("We want to use: {}, and Agent uses: {}".format(
         cfg.device, agent.learner.device))
 

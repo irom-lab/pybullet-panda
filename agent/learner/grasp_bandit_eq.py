@@ -36,8 +36,8 @@ class GraspBanditEq():
         # Parameters - grasping
         self.num_theta = cfg.num_theta
         self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
-        self.min_z = 0.25
-        self.max_z = 0.40
+        self.min_z = cfg.min_depth
+        self.max_z = cfg.max_depth
 
         # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
         self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
@@ -128,7 +128,7 @@ class GraspBanditEq():
                 sum(p.numel() for p in self.state_encoder.parameters() if p.requires_grad)))
             logging.info('Total parameters in Latent Policy (MLP): {}'.format(
                 sum(p.numel() for p in self.latent_policy.parameters() if p.requires_grad)))
-            logging.info('Total parameters in Action Encoder (MLP): {}'.format(
+            logging.info('Total parameters in Action Encoder (CNN+MLP): {}'.format(
                 sum(p.numel() for p in self.action_encoder.parameters() if p.requires_grad)))
 
         # Create optimizer
@@ -138,7 +138,8 @@ class GraspBanditEq():
 
         # Load optimizer if specified
         if hasattr(cfg, 'optimizer_path') and cfg.optimizer_path is not None:
-            self.load_optimizer_state(torch.load(cfg.optimizer_path.state,  map_location=self.device))
+            self.load_optimizer_state(torch.load(cfg.optimizer_path.state, 
+                                                 map_location=self.device))
             logging.info('Loaded optimizer for FCN!')
 
 
