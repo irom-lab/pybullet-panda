@@ -219,6 +219,4 @@ if __name__ == '__main__':
     actions_2 = torch.tensor([[0., 1.0],[1., 0.0],[0., 1.0],[0., 1.0],[0., 1.0]])
 
     cost_matrix = calculate_action_cost_matrix(actions_1, actions_2, False)
-    print(cost_matrix)
     fp = metric_fixed_point(cost_matrix)
-    print(torch.sum(fp))

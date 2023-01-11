@@ -1,4 +1,5 @@
 
+
 def as_mesh(scene_or_mesh):
     import trimesh
     """

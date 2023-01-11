@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
+import logging
 
 import numpy as np
 from collections import OrderedDict
@@ -150,7 +151,7 @@ class ConvNet(nn.Module):
         self.cnn_output_dim = cnn_output_dim
 
         if verbose:
-            print(self.moduleList)
+            logging.info(self.moduleList)
 
 
     def get_output_dim(self):

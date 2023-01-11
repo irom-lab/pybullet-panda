@@ -9,8 +9,7 @@ def soft_update(target, source, tau):
                                 param.data * tau)
 
 
-
-def save_model(model, step, logs_path, types, max_model=None):
+def save_model(model, logs_path, types, step, max_model=None):
     start = len(types) + 1
     os.makedirs(logs_path, exist_ok=True)
     if max_model is not None:
@@ -22,4 +21,10 @@ def save_model(model, step, logs_path, types, max_model=None):
                 os.path.join(logs_path, '{}-{}.pth'.format(types, min_step)))
     logs_path = os.path.join(logs_path, '{}-{}.pth'.format(types, step))
     torch.save(model.state_dict(), logs_path)
-    print('=> Save {} after [{}] updates'.format(logs_path, step))
+    return logs_path
+
+
+def tie_weights(src, trg):
+    assert type(src) == type(trg)
+    trg.weight = src.weight
+    trg.bias = src.bias

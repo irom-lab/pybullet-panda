@@ -10,8 +10,8 @@ def NearZero(z):
 ######### Conversion between S03 and euler angle, quaternion #########
 ##########################################################################
 """
-All conversions follow 	https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/. except yaw and pitch are flipped
-ZYX (Yaw, pitch, roll) Euler angle convention is used.
+All conversions follow https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/. except yaw and pitch are flipped
+ZYX (Yaw, pitch, roll) intrinsic Euler angle convention is used.
 """
 
 
@@ -408,42 +408,3 @@ def SO3_6D_np(b1, a2):
 # 	elif angle < -np.pi:
 # 		angle += 2*np.pi
 # 	return angle
-
-################################################################################
-
-
-def QuinticTimeScaling(Tf, t):
-    """Computes s(t) for a quintic time scaling
-	:param Tf: Total time of the motion in seconds from rest to rest
-	:param t: The current time t satisfying 0 < t < Tf
-	:return: The path parameter s(t) corresponding to a fifth-order
-			 polynomial motion that begins and ends at zero velocity and zero
-			 acceleration
-	Example Input:
-		Tf = 2
-		t = 0.6
-	Output:
-		0.16308
-	"""
-    return 10 * (1.0 * t / Tf) ** 3 - 15 * (1.0 * t / Tf) ** 4 \
-        + 6 * (1.0 * t / Tf) ** 5
-
-
-def LinearTimeScaling(Tf, t):
-    """
-	Computes s(t) for a quintic time scaling
-	"""
-    return t / Tf
-
-
-def traj_time_scaling(self, start_pos, end_pos, num_steps):
-    traj_pos = np.zeros((num_steps, 3))
-    for step in range(num_steps):
-        s = 3 * (1.0 * step / num_steps)**2 - 2 * (1.0 * step / num_steps)**3
-        traj_pos[step] = (end_pos - start_pos) * s + start_pos
-    return traj_pos
-
-
-def full_jacob_pb(jac_t, jac_r):
-    return np.vstack(
-        (jac_t[0], jac_t[1], jac_t[2], jac_r[0], jac_r[1], jac_r[2]))

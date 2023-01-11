@@ -73,7 +73,7 @@ def main(cfg):
         env_cfg = OmegaConf.merge(env_cfg, cfg.env.specific)
 
     # Environment
-    print("\n== Environment Information ==")
+    logging.info("== Environment Information ==")
     venv = make_vec_envs(
         env_type=get_env(cfg.env.name),
         seed=cfg.seed,
@@ -86,21 +86,21 @@ def main(cfg):
     )
 
     # Agent
-    print("\n== Agent Information ==")
+    logging.info("== Agent Information ==")
     agent = get_agent(cfg.agent)(cfg.policy, venv)
-    print('\nTotal parameters in policy: {}'.format(
+    logging.info('Total parameters in policy: {}'.format(
         sum(p.numel() for p in agent.learner.parameters()
             if p.requires_grad)))
-    print("We want to use: {}, and Agent uses: {}".format(
+    logging.info("We want to use: {}, and Agent uses: {}".format(
         cfg.device, agent.learner.device))
 
     # Learn
     start_time = time.time()
     if cfg.policy.eval:
-        print("\n== Evaluating ==")
+        logging.info("\n== Evaluating ==")
         agent.evaluate()
     else:
-        print("\n== Learning ==")
+        logging.info("\n== Learning ==")
         agent.learn(verbose=cfg.verbose)
     logging.info('\nTime used: {:.1f}'.format(time.time() - start_time))
 

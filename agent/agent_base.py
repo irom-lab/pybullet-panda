@@ -88,7 +88,7 @@ class AgentBase():
 
     def run_steps(self, num_step=None, 
                         num_episode=None, 
-                        # force_random=False, 
+                        force_random=False, 
                         run_in_seq=False):
         if num_step is not None:
             cnt_target = num_step
@@ -122,7 +122,10 @@ class AgentBase():
 
             # Select action
             eps = self.eps_schduler.get_variable()
-            flag_random = self.rng.choice(2, p=[1-eps, eps])
+            if force_random:
+                flag_random = 1
+            else:
+                flag_random = self.rng.choice(2, p=[1-eps, eps])
             with torch.no_grad():
                 a_all = self.learner.forward(s,
                                             #  append=append_all,

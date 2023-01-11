@@ -6,9 +6,9 @@ from torch.distributions import Normal
 
 from network.conv import ConvNet
 from network.mlp import MLP
-from network.gru import GRU
-from network.lstm import LSTM
-from network.util import tie_weights
+# from network.gru import GRU
+# from network.lstm import LSTM
+from util.network import tie_weights
 
 
 class Encoder(torch.nn.Module):

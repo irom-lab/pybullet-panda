@@ -84,11 +84,12 @@ class AgentGrasp(AgentBase):
                                         endValue=self.cfg_eps.end,
                                         stepSize=self.cfg_eps.step)
 
-        # Run initial steps
+        # Run initial steps with random steps
         self.set_train_mode()
         if self.num_warmup_step_percentage > 0:
             num_warmup_step = int(self.max_sample_steps*self.num_warmup_step_percentage)
-            self.cnt_step, _ = self.run_steps(num_step=num_warmup_step)
+            self.cnt_step, _ = self.run_steps(num_step=num_warmup_step,
+                                              force_random=True)
         logging.info(f'Warmed up with {self.cnt_step} steps!')
 
         # Run rest of steps while optimizing policy
@@ -99,6 +100,8 @@ class AgentGrasp(AgentBase):
 
             # Train 
             if not self.eval_mode:
+
+                # Run steps
                 self.cnt_step += self.run_steps(num_step=self.update_freq)[0]
 
                 # Update policy
@@ -128,12 +131,13 @@ class AgentGrasp(AgentBase):
                 # Clear GPU cache
                 torch.cuda.empty_cache()
 
-                ################### Eval ###################
+                # Switch to evaluation
                 if cnt_opt % self.check_freq == 0 and cnt_opt > 0:
                     self.set_eval_mode()
 
-            # eval
+            # Evaluate
             else:
+                logging.info(f'Evaluating at step {self.cnt_step}...')
                 num_episode_run, _ = self.run_steps(num_episode=self.num_episode_per_eval)
                 eval_reward_cumulative = self.eval_reward_cumulative_all / num_episode_run
                 if verbose:
@@ -152,7 +156,8 @@ class AgentGrasp(AgentBase):
                     raise NotImplementedError
 
                 # Generate sample affordance map - samples can be random - so not necessarily the best one
-                self.save_sample_affordance(num=self.num_affordance)
+                with torch.no_grad():
+                    self.save_sample_affordance(num=self.num_affordance)
 
                 # Save training details
                 torch.save(
@@ -169,12 +174,12 @@ class AgentGrasp(AgentBase):
         best_reward = np.max([q[0] for q in self.pq_top_k.queue]) # yikes...
         logging.info('Saving best path {} with reward {}!'.format(best_path, best_reward))
 
-        # Policy, memory, optimizer
-        return best_path, deepcopy(self.memory), self.learner.get_optimizer_state()
-
+        # Policy
+        return best_path
 
     # === Replay and update ===
     def sample_batch(self, batch_size=None):
+        # Sample indices
         if batch_size is None:
             batch_size = self.batch_size
 

@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import logging
 
 
 class Interpolate(nn.Module):
@@ -15,7 +16,12 @@ class Interpolate(nn.Module):
 
 
 class FCN(nn.Module):
-    def __init__(self, inner_channels=64, in_channels=1, out_channels=1, img_size=96):
+    def __init__(self, 
+                 inner_channels=64, 
+                 in_channels=1, 
+                 out_channels=1, 
+                 img_size=96,
+                 verbose=True):
         super(FCN, self).__init__()
         bias = False
 
@@ -103,6 +109,18 @@ class FCN(nn.Module):
         )
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+        if verbose:
+            logging.info('Down layers:')
+            logging.info(self.down_layer_1)
+            logging.info(self.down_layer_2)
+            logging.info(self.down_layer_3)
+            logging.info('Up layers:')
+            logging.info(self.up_layer_1)
+            logging.info(self.up_layer_2)
+            logging.info(self.up_layer_3)
+            logging.info('Output layer:')
+            logging.info(self.output_layer)
 
 
     def forward(self, x, append=None):

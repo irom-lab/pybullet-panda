@@ -42,4 +42,3 @@ def rgba2rgb(rgba, background=(255, 255, 255)):
     rgb[:, :, 1] = g * a + (1.0 - a) * G
     rgb[:, :, 2] = b * a + (1.0 - a) * B
     return np.asarray(rgb, dtype='uint8')
-
