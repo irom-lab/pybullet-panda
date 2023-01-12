@@ -8,49 +8,23 @@ from copy import deepcopy
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from agent.agent_base import AgentBase
-from agent.learner import get_learner
+from agent.agent_train import AgentTrain
 from util.image import rotate_tensor
 
 from util.scheduler import StepLRFixed
 
 
-class AgentGrasp(AgentBase):
+class AgentTrainEq(AgentTrain):
     def __init__(self, cfg, venv, verbose=True):
         """
         """
-        super().__init__(cfg, venv)
-        self.store_cfg(cfg)
-
-        # Learner
-        self.learner_name = cfg.learner.name
-        self.learner = get_learner(self.learner_name)(cfg.learner)
-        # self.learner.build_network(cfg.learner.arch, verbose=verbose)
-        self.module_all = [self.learner]    # for saving models
-
-        # Utility - helper functions for envs
-        # self.utility = get_utility(cfg.utility.name)(cfg.utility)
-
-        # Affordance map
-        self.img_folder = os.path.join(cfg.out_folder, 'img')
-        os.makedirs(self.img_folder, exist_ok=True)
+        super().__init__(cfg, venv, verbose)
 
 
     def store_cfg(self, cfg):
-        self.img_h = cfg.learner.img_h
-        self.img_w = cfg.learner.img_w
-        self.max_sample_steps = cfg.max_sample_steps
-        self.batch_size = cfg.batch_size
-        self.memory_capacity = cfg.memory_capacity
-        self.update_freq = cfg.update_freq
-        self.num_update = max(1, int(cfg.replay_ratio*self.update_freq/self.batch_size))
-        self.check_freq = cfg.check_freq
-        self.num_warmup_step_percentage = cfg.num_warmup_step_percentage
-        self.num_episode_per_eval = cfg.num_eval_episode
-        self.cfg_eps = cfg.eps
-        self.num_affordance = cfg.num_affordance
-        self.batch_positive_ratio = cfg.batch_positive_ratio
-        self.imitate_data_path = cfg.imitate_data_path
+        super().store_cfg(cfg)
+        self.target_reward = cfg.target_reward
+        self.action_dim = 2
 
 
     def learn(self, tasks=None, 
@@ -94,40 +68,48 @@ class AgentGrasp(AgentBase):
                                               force_random=True)
         logging.info(f'Warmed up with {self.cnt_step} steps!')
 
+        # flag for checking whether training the action decoder or training the latent policy plus the state encoder - initially we train the action decoder
+        flag_train_action_decoder = True 
+
         # Run rest of steps while optimizing policy
         cnt_opt = 0
         best_reward = 0
         while self.cnt_step <= self.max_sample_steps:
             print(self.cnt_step, end='\r')
 
-            # Train 
+            # Train
             if not self.eval_mode:
 
                 # Run steps
                 self.cnt_step += self.run_steps(num_step=self.update_freq)[0]
 
-                # Update policy
-                loss = 0
-                # if len(torch.where(self.reward_buffer == 1)[0]) > 2*self.batch_size:
-                #     logging.info('Updating!')
-                for _ in range(self.num_update):
-                    batch_train = self.unpack_batch(self.sample_batch(positive_ratio=self.batch_positive_ratio))
-                    loss_batch = self.learner.update(batch_train)
-                    loss += loss_batch
-                loss /= self.num_update
+                # Update either action decoder or latent policy plus state encoder
+                loss = np.empty((0,3))
+                for update_ind in range(self.num_update):
+                    if flag_train_action_decoder:
+                        batch_train = self.unpack_batch(self.sample_batch())
+                        action_decoder_ce_loss = self.learner.update_action_decoder(batch_train, verbose=update_ind < 1)
+                        # latent_policy_ce_loss = 0
+                        # alignment_loss = 0 
+                    else:
+                        action_decoder_ce_loss = 0
 
-                # Record: loss_q, loss_pi, loss_entropy, loss_alpha
+                    batch_train = self.unpack_batch(self.sample_batch(positive_ratio=self.batch_positive_ratio))
+                    latent_policy_ce_loss, alignment_loss, stats = self.learner.update_latent_policy(batch_train, verbose=update_ind < 1)
+                    loss = np.vstack((loss, [action_decoder_ce_loss, latent_policy_ce_loss, alignment_loss]))
+                loss = np.sum(loss, axis=1) / self.num_update
+
+                # Record:
                 self.loss_record[self.cnt_step] = loss
                 if self.use_wandb:
                     wandb.log(
                         {
-                            "Train loss": loss,
+                            "CE loss from action decoder": loss[0],
+                            "CE loss from latent policy": loss[1],
+                            "Alignment loss": loss[2],
                         },
                         step=self.cnt_step,
                         commit=False)
-
-                # Reset simulation
-                # self.reset_sim()
 
                 # Count number of optimization
                 cnt_opt += 1
@@ -155,11 +137,21 @@ class AgentGrasp(AgentBase):
                         "Cumulative Reward": eval_reward_cumulative,
                     }, step=self.cnt_step, commit=True)
 
+                # Check if target reward is reached
+                flag_train_action_decoder = eval_reward_cumulative < self.target_reward
+                logging.info(f'Training action decoder next? {flag_train_action_decoder}')
+
                 # Saving model (and replay buffer)
                 if self.save_metric == 'cum_reward':
                     best_path = self.save(metric=eval_reward_cumulative)
                 else:
                     raise NotImplementedError
+
+                #!
+                self.eps_schduler = StepLRFixed(initValue=1-eval_reward_cumulative,
+                                                period=eps_period,
+                                                endValue=self.cfg_eps.end,
+                                                stepSize=self.cfg_eps.step)
 
                 # Generate sample affordance map - samples can be random - so not necessarily the best one
                 with torch.no_grad():
@@ -184,6 +176,7 @@ class AgentGrasp(AgentBase):
         # Policy
         return best_path
 
+
     # === Replay and update ===
     def sample_batch(self, batch_size=None, positive_ratio=None):
         # Sample indices
@@ -197,7 +190,11 @@ class AgentGrasp(AgentBase):
         else:
             positive_inds = torch.where(self.reward_buffer == 1)[0]
             negative_inds = torch.where(self.reward_buffer == 0)[0]
-            num_positive = min(len(positive_inds), int(batch_size * positive_ratio))
+
+            #! Do not sample more than 20% of positive examples in each batch, while also keeping a minimum amount
+            num_positive = min(int(len(positive_inds)*0.2), int(batch_size * positive_ratio))
+            num_positive = num_positive if num_positive > 16 else 0
+
             positive_sample_inds = positive_inds[random.sample(range(len(positive_inds)), 
                                                         k=min(num_positive, len(positive_inds)))]
             num_negative = batch_size - len(positive_sample_inds)
@@ -205,23 +202,28 @@ class AgentGrasp(AgentBase):
                                                                k=num_negative)]
             sample_inds = torch.cat((positive_sample_inds, negative_sample_inds))  
             sample_inds = sample_inds[torch.randperm(len(sample_inds))]
-        
-        depth_train_batch = self.depth_buffer[sample_inds].clone().detach().to(
+
+        # Get obs with indices
+        depth_batch = self.depth_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True).unsqueeze(1)  # Nx1xHxW
         ground_truth_batch = self.ground_truth_buffer[sample_inds].clone(
         ).detach().to(self.device, non_blocking=True)  # NxHxW
-        mask_train_batch = self.mask_buffer[sample_inds].clone().detach().to(
+        mask_batch = self.mask_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True)  # NxHxW
-        return (depth_train_batch, ground_truth_batch, mask_train_batch)
-
-
-    def unpack_batch(self, batch):
-        return batch
+        
+        # Get action and reward with indices
+        action_batch = self.action_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # Nx2
+        reward_batch = self.reward_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # Nx1
+        scaling_batch = self.scaling_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # Nx1
+        
+        return (depth_batch, ground_truth_batch, mask_batch, action_batch, reward_batch, scaling_batch)
 
 
     def store_transition(self, s, a, r, s_, done, info):
         """Different from typical RL buffer setup"""
-        # TODO: batch store?
 
         # Indices to be replaced in the buffer for current step
         num_new = s.shape[0]
@@ -229,7 +231,9 @@ class AgentGrasp(AgentBase):
 
         # Extract action
         _, _, _, theta, py, px = a
+        action_tensor = torch.tensor([[py, px]]).float()
         reward_tensor = torch.tensor([r]).float()
+        scaling_tensor = torch.tensor([info['global_scaling']]).float()
 
         # Convert depth to tensor
         new_depth = s.detach().to('cpu')
@@ -240,9 +244,6 @@ class AgentGrasp(AgentBase):
         # Construnct ground truth and mask (all zeros except for selected pixel)
         new_ground_truth = torch.zeros_like(new_depth).to('cpu')
         new_mask = torch.zeros_like(new_depth).to('cpu')
-        # for trial_ind, (success, (py, px)) in enumerate(zip(r, a)):
-        #     new_ground_truth[trial_ind, py, py] = success
-        #     new_mask[trial_ind, py, px] = 1
         new_ground_truth[0, int(py), int(px)] = r
         new_mask[0, int(py), int(px)] = 1
 
@@ -261,8 +262,12 @@ class AgentGrasp(AgentBase):
             # self.recency_buffer = np.concatenate(
             #     (self.recency_buffer, np.ones(
             #         (num_new)) * recency))[:self.memory_capacity]
+            self.action_buffer = torch.cat(
+                (self.action_buffer, action_tensor))[:self.memory_capacity]
             self.reward_buffer = torch.cat(
                 (self.reward_buffer, reward_tensor))[:self.memory_capacity]
+            self.scaling_buffer = torch.cat(
+                (self.scaling_buffer, scaling_tensor))[:self.memory_capacity]
         else:
             # Replace older ones
             replace_ind = np.random.choice(self.memory_capacity,
@@ -275,56 +280,28 @@ class AgentGrasp(AgentBase):
             self.ground_truth_buffer[replace_ind] = new_ground_truth
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
+            self.action_buffer[replace_ind] = action_tensor
             self.reward_buffer[replace_ind] = reward_tensor
-
-
-    #== Reset policy/optimizer/memory
-    def reset_policy(self, policy_path=None):
-        if policy_path:
-            self.learner.load_network(policy_path)
-            logging.info('Loaded policy network from: {}'.format(policy_path))
-        else:
-            self.learner.build_network(self.cfg.learner.arch,   
-                                       build_optimizer=False, 
-                                       verbose=True)
-            logging.info('Built new policy network!')
+            self.scaling_buffer[replace_ind] = scaling_tensor
 
 
     def reset_memory(self, memory):
-        if memory is not None:
-            raise NotImplementedError
-            # self.memory = memory
-            # logging.info('Reusing memory with size {}!'.format(len(self.memory)))
-        elif hasattr(self, 'memory_path'):
-            raise NotImplementedError
-        else:
-            self.depth_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
-            self.ground_truth_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
-            self.mask_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
-            # self.recency_buffer = np.empty((0))
-            self.reward_buffer = torch.empty((0)).float().float().to('cpu')
-            logging.info('Built memory!')
+        """Also building action buffer"""
+        super().reset_memory(memory)
 
-
-    def reset_optimizer(self, optimizer_state=None):
-        if optimizer_state:
-            self.learner.load_optimizer_state(optimizer_state)
-            logging.info('Loaded policy optimizer!')
-        else:
-            self.learner.build_optimizer()
-            logging.info('Built new policy optimizer!')
+        self.action_buffer = torch.empty((0, self.action_dim)).float().to('cpu')
+        self.scaling_buffer = torch.empty((0)).float().float().to('cpu')
+        logging.info('Built action and reward buffer!')
 
 
     def save_sample_affordance(self, num):
         for ind in range(num):
             img_ind = self.rng.integers(0, self.depth_buffer.shape[0])
             img = self.depth_buffer[img_ind]
+            scaling = self.scaling_buffer[img_ind]
             img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
             pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
-            img_path_prefix = os.path.join(self.img_folder, str(self.cnt_step))
+            img_path_prefix = os.path.join(self.img_folder, f'step-{str(self.cnt_step)}_scaling-{scaling:.3f}')
 
             depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
             depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)

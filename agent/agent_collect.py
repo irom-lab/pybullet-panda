@@ -7,13 +7,13 @@ from copy import deepcopy
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from agent.agent_grasp import AgentGrasp
+from agent.agent_train import AgentTrain
 from util.image import rotate_tensor
 from util.scheduler import StepLRFixed
 from util.misc import save_obj
 
 
-class AgentGraspCollect(AgentGrasp):
+class AgentCollect(AgentTrain):
     def __init__(self, cfg, venv, verbose=True):
         """
         """
