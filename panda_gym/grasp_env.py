@@ -140,7 +140,7 @@ class GraspEnv(PandaEnv):
             reward = 1
         else:
             reward = 0
-        return np.array([]), reward, True, {}   # s, reward, done, info
+        return np.array([]), reward, True, {'global_scaling': self.task['global_scaling']}   # s, reward, done, info
 
 
     def clear_obj(self, thres=0.03):

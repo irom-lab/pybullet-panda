@@ -49,6 +49,8 @@ class AgentGrasp(AgentBase):
         self.num_episode_per_eval = cfg.num_eval_episode
         self.cfg_eps = cfg.eps
         self.num_affordance = cfg.num_affordance
+        self.batch_positive_ratio = cfg.batch_positive_ratio
+        self.imitate_data_path = cfg.imitate_data_path
 
 
     def learn(self, tasks=None, 
@@ -106,8 +108,10 @@ class AgentGrasp(AgentBase):
 
                 # Update policy
                 loss = 0
+                # if len(torch.where(self.reward_buffer == 1)[0]) > 2*self.batch_size:
+                #     logging.info('Updating!')
                 for _ in range(self.num_update):
-                    batch_train = self.unpack_batch(self.sample_batch())
+                    batch_train = self.unpack_batch(self.sample_batch(positive_ratio=self.batch_positive_ratio))
                     loss_batch = self.learner.update(batch_train)
                     loss += loss_batch
                 loss /= self.num_update
@@ -137,12 +141,14 @@ class AgentGrasp(AgentBase):
 
             # Evaluate
             else:
+                logging.info("======================================")
                 logging.info(f'Evaluating at step {self.cnt_step}...')
                 num_episode_run, _ = self.run_steps(num_episode=self.num_episode_per_eval)
                 eval_reward_cumulative = self.eval_reward_cumulative_all / num_episode_run
                 if verbose:
                     logging.info(f'eps: {self.eps_schduler.get_variable()}')
                     logging.info(f'avg cumulative reward: {eval_reward_cumulative}')
+                    logging.info(f'number of positive examples in the buffer: {len(torch.where(self.reward_buffer == 1)[0])}')
                 self.eval_record[self.cnt_step] = (eval_reward_cumulative, )
                 if self.use_wandb:
                     wandb.log({
@@ -168,6 +174,7 @@ class AgentGrasp(AgentBase):
 
                 # Switch to training
                 self.set_train_mode()
+                logging.info("======================================")
 
         ################### Done ###################
         # best_path = self.save(force_save=True)    # TODO: force_save cfg
@@ -178,14 +185,27 @@ class AgentGrasp(AgentBase):
         return best_path
 
     # === Replay and update ===
-    def sample_batch(self, batch_size=None):
+    def sample_batch(self, batch_size=None, positive_ratio=None):
         # Sample indices
         if batch_size is None:
             batch_size = self.batch_size
 
         # Train by sampling from buffer
         buffer_size = self.depth_buffer.shape[0]
-        sample_inds = random.sample(range(buffer_size), k=batch_size)
+        if positive_ratio is None:
+            sample_inds = random.sample(range(buffer_size), k=batch_size)
+        else:
+            positive_inds = torch.where(self.reward_buffer == 1)[0]
+            negative_inds = torch.where(self.reward_buffer == 0)[0]
+            num_positive = min(len(positive_inds), int(batch_size * positive_ratio))
+            positive_sample_inds = positive_inds[random.sample(range(len(positive_inds)), 
+                                                        k=min(num_positive, len(positive_inds)))]
+            num_negative = batch_size - len(positive_sample_inds)
+            negative_sample_inds = negative_inds[random.sample(range(len(negative_inds)), 
+                                                               k=num_negative)]
+            sample_inds = torch.cat((positive_sample_inds, negative_sample_inds))  
+            sample_inds = sample_inds[torch.randperm(len(sample_inds))]
+        
         depth_train_batch = self.depth_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True).unsqueeze(1)  # Nx1xHxW
         ground_truth_batch = self.ground_truth_buffer[sample_inds].clone(
@@ -209,6 +229,7 @@ class AgentGrasp(AgentBase):
 
         # Extract action
         _, _, _, theta, py, px = a
+        reward_tensor = torch.tensor([r]).float()
 
         # Convert depth to tensor
         new_depth = s.detach().to('cpu')
@@ -240,6 +261,8 @@ class AgentGrasp(AgentBase):
             # self.recency_buffer = np.concatenate(
             #     (self.recency_buffer, np.ones(
             #         (num_new)) * recency))[:self.memory_capacity]
+            self.reward_buffer = torch.cat(
+                (self.reward_buffer, reward_tensor))[:self.memory_capacity]
         else:
             # Replace older ones
             replace_ind = np.random.choice(self.memory_capacity,
@@ -252,6 +275,7 @@ class AgentGrasp(AgentBase):
             self.ground_truth_buffer[replace_ind] = new_ground_truth
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
+            self.reward_buffer[replace_ind] = reward_tensor
 
 
     #== Reset policy/optimizer/memory
@@ -262,7 +286,7 @@ class AgentGrasp(AgentBase):
         else:
             self.learner.build_network(self.cfg.learner.arch,   
                                        build_optimizer=False, 
-                                       verbose=False)
+                                       verbose=True)
             logging.info('Built new policy network!')
 
 
@@ -281,6 +305,7 @@ class AgentGrasp(AgentBase):
             self.mask_buffer = torch.empty(
                 (0, self.img_h, self.img_w)).float().to('cpu')
             # self.recency_buffer = np.empty((0))
+            self.reward_buffer = torch.empty((0)).float().float().to('cpu')
             logging.info('Built memory!')
 
 

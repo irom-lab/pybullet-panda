@@ -1,6 +1,7 @@
 from torch import nn
 from torch.nn.utils import spectral_norm
 from collections import OrderedDict
+import logging
 
 
 activation_dict = nn.ModuleDict({
@@ -23,7 +24,7 @@ class MLP(nn.Module):
                  use_ln=False,
                  use_spec=False,
                  use_bn=False,
-                 verbose=False):
+                 verbose=True):
         """
         __init__: Initalizes.
 
@@ -49,7 +50,29 @@ class MLP(nn.Module):
             linear_layer = nn.Linear(i_dim, o_dim)
             if use_spec:
                 linear_layer = spectral_norm(linear_layer)
-            if idx == 0:
+            # final - could also be the first layer
+            if idx == numLayer - 1:
+                if use_ln:
+                    module = nn.Sequential(
+                        OrderedDict([
+                            ('linear_1', linear_layer),
+                            ('norm_1', nn.LayerNorm(o_dim)),
+                        ]))
+                elif use_bn:
+                    module = nn.Sequential(
+                        OrderedDict([
+                            ('linear_1', linear_layer),
+                            ('norm_1', nn.BatchNorm1d(o_dim)),
+                            ('act_1', activation_dict[out_activation_type]),
+                        ]))
+                else:
+                    module = nn.Sequential(
+                        OrderedDict([
+                            ('linear_1', linear_layer),
+                            ('act_1', activation_dict[out_activation_type]),
+                        ]))
+            # first layer
+            elif idx == 0:
                 if use_ln:
                     module = nn.Sequential(
                         OrderedDict([
@@ -69,14 +92,16 @@ class MLP(nn.Module):
                             ('linear_1', linear_layer),
                             ('act_1', activation_dict[activation_type]),
                         ]))
-            elif idx == numLayer - 1:
-                module = nn.Sequential(
-                    OrderedDict([
-                        ('linear_1', linear_layer),
-                        ('act_1', activation_dict[out_activation_type]),
-                    ]))
+            # hidden layers
             else:
-                if use_bn:
+                if use_ln:
+                    module = nn.Sequential(
+                        OrderedDict([
+                            ('linear_1', linear_layer),
+                            ('norm_1', nn.LayerNorm(o_dim)),
+                            ('act_1', activation_dict[activation_type]),
+                        ]))
+                elif use_bn:
                     module = nn.Sequential(
                         OrderedDict([
                             ('linear_1', linear_layer),
@@ -92,7 +117,7 @@ class MLP(nn.Module):
 
             self.moduleList.append(module)
         if verbose:
-            print(self.moduleList)
+            logging.info(self.moduleList)
 
 
     def forward(self, x):

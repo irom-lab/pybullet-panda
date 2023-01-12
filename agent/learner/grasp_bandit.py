@@ -77,7 +77,7 @@ class GraspBandit():
                 self.optimizer,
                 step_size=self.lr_period,
                 gamma=self.lr_decay)
-        self.criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
+        self.criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')   # normalizes FCN output
 
 
     def forward(self, obs, append=None, flag_random=False):
@@ -167,8 +167,8 @@ class GraspBandit():
         self.optimizer.zero_grad()
 
         # mask gradient for non-selected pixels
-        pred_train_batch.retain_grad()
-        pred_train_batch.register_hook(lambda grad: grad * mask_train_batch)
+        # pred_train_batch.retain_grad()
+        # pred_train_batch.register_hook(lambda grad: grad * mask_train_batch)
 
         # Update params using clipped gradients
         train_loss.backward()

@@ -1,4 +1,5 @@
 import torch
+import logging
 
 from .conv import ConvNet
 from .mlp import MLP
@@ -18,15 +19,13 @@ class Encoder(torch.nn.Module):
         mlp_output_dim,
         use_sm=False,
         use_spec=False,
-        use_bn=False,
+        use_bn_conv=False,
+        use_bn_mlp=False,
+        use_ln_mlp=False,
         device='cpu',
         verbose=True,
     ):
         super().__init__()
-        if verbose:
-            print(
-                "The neural network for encoder has the architecture as below:"
-            )
         self.conv = ConvNet(input_n_channel=in_channels,
                             cnn_kernel_size=kernel_sz,
                             cnn_stride=stride,
@@ -35,16 +34,16 @@ class Encoder(torch.nn.Module):
                             img_size=img_sz,
                             use_sm=use_sm,
                             use_spec=use_spec,
-                            use_bn=use_bn,
+                            use_bn=use_bn_conv,
                             verbose=verbose).to(device)
 
         mlp_dim_list = [self.conv.get_output_dim(), *mlp_hidden_dim, mlp_output_dim]
         self.mlp = MLP(mlp_dim_list,
                        activation_type='relu',
                        out_activation_type='identity',
-                       use_ln=False,
                        use_spec=False,
-                       use_bn=False,
+                       use_bn=use_bn_mlp,
+                       use_ln=use_ln_mlp,
                        verbose=verbose).to(device)
 
 

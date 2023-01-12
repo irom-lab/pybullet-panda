@@ -4,7 +4,7 @@ import argparse
 import pretty_errors
 import wandb
 import matplotlib
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 from omegaconf import OmegaConf
 import logging
 import time
@@ -22,7 +22,8 @@ def main(cfg):
     log_file = os.path.join(cfg.out_folder, 'log.log')
     log_fh = logging.FileHandler(log_file, mode='w+')
     log_sh = logging.StreamHandler(sys.stdout)
-    log_format = '%(asctime)s %(levelname)s: %(message)s'
+    # log_format = '%(asctime)s %(levelname)s: %(message)s'
+    log_format = '%(levelname)s: %(message)s'
     # Possible levels: DEBUG, INFO, WARNING, ERROR, CRITICAL    
     logging.basicConfig(format=log_format, level='INFO', 
         handlers=[log_sh, log_fh])
@@ -91,8 +92,7 @@ def main(cfg):
     # logging.info('Total parameters in policy: {}'.format(
     #     sum(p.numel() for p in agent.learner.parameters()
     #         if p.requires_grad)))
-    logging.info("We want to use: {}, and Agent uses: {}".format(
-        cfg.device, agent.learner.device))
+    logging.info("Using devic: {}".format(cfg.device))
 
     # Learn
     start_time = time.time()
