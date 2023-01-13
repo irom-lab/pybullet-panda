@@ -157,7 +157,7 @@ class AgentTrain(AgentBase):
 
                 # Generate sample affordance map
                 for aff_ind in range(self.num_affordance):
-                    img = self.depth_buffer[self.rng.integers(0, self.depth_buffer.shape[0])]
+                    img = self.depth_buffer[self.rng.integers(0, self.depth_buffer.shape[0])].float()/255.0
                     img_pred = self.learner(img[None, None].to(self.device)).squeeze(1).squeeze(0)
                     save_affordance_map(img=img,
                                         pred=img_pred,
@@ -209,51 +209,48 @@ class AgentTrain(AgentBase):
 
 
     def store_transition(self, s, a, r, s_, done, info):
-        """Different from typical RL buffer setup"""
-        # TODO: batch store?
+        """Save images as uint8"""
 
         # Indices to be replaced in the buffer for current step
-        num_new = s.shape[0]
+        num_new, _, H, W = s.shape
         assert num_new == 1
 
         # Extract action
-        _, _, _, theta, py, px, py_rotated, px_rotated = a
+        _, _, _, theta, py, px, py_rot, px_rot = a
         reward_tensor = torch.tensor([r]).float()
 
-        # Convert depth to tensor
+        # Convert depth to tensor, uint8 to float32
         depth = s.detach().to('cpu')
+        depth = depth.float()/255.0
 
-        # Rotate according to theta
-        depth_rotated = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
+        # Rotate to theta
+        depth_rot = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
 
-        # Construnct ground truth and mask (all zeros except for selected pixel)
-        new_ground_truth = torch.zeros_like(depth_rotated).to('cpu')
-        new_mask = torch.zeros_like(depth_rotated).to('cpu')
-        # for trial_ind, (success, (py, px)) in enumerate(zip(r, a)):
-        #     new_ground_truth[trial_ind, py, py] = success
-        #     new_mask[trial_ind, py, px] = 1
-        new_ground_truth[0, int(py_rotated), int(px_rotated)] = r
-        new_mask[0, int(py_rotated), int(px_rotated)] = 1
+        # Mark ground truth and mask with rotated x and y since depth is rotated (all zeros except for selected pixel)
+        new_ground_truth = torch.zeros((1, H, W), dtype=torch.uint8).to('cpu')
+        new_mask = torch.zeros((1, H, W), dtype=torch.uint8).to('cpu')
+        new_ground_truth[0, int(py_rot), int(px_rot)] = int(r)
+        new_mask[0, int(py_rot), int(px_rot)] = 1
 
         # Determine recency for new data
         # recency = np.exp(-self.cnt_step * 0.1)  # rank-based    #?
 
-        # # Debug
+        # Debug
         # if r > 0:
         #     import matplotlib.pyplot as plt
         #     fig, axes = plt.subplots(1, 2)
         #     axes[0].imshow(depth[0,0].cpu().numpy())
         #     axes[0].scatter(px, py, c='r')
-        #     axes[1].imshow(depth_rotated[0].cpu().numpy())
-        #     axes[1].scatter(px_rotated, py_rotated, c='r')
-        #     axes[0].set_title('Original')
+        #     axes[1].imshow(depth_rot[0].cpu().numpy())
+        #     axes[1].scatter(px_rot, py_rot, c='r')
+        #     axes[0].set_title('Original (with action rotated back')
         #     axes[1].set_title('Rotated')
         #     plt.show()
 
         # Check if buffer filled up
         if self.depth_buffer.shape[0] < self.memory_capacity:
             self.depth_buffer = torch.cat(
-                (self.depth_buffer, depth_rotated))[:self.memory_capacity]
+                (self.depth_buffer, (depth_rot*255).byte()))[:self.memory_capacity]
             self.ground_truth_buffer = torch.cat(
                 (self.ground_truth_buffer, new_ground_truth))[:self.memory_capacity]
             self.mask_buffer = torch.cat(
@@ -271,7 +268,7 @@ class AgentTrain(AgentBase):
                                         #    p=self.recency_buffer /
                                         #    np.sum(self.recency_buffer)
                                            )
-            self.depth_buffer[replace_ind] = depth_rotated
+            self.depth_buffer[replace_ind] = (depth_rot*255).byte()
             self.ground_truth_buffer[replace_ind] = new_ground_truth
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
@@ -299,13 +296,13 @@ class AgentTrain(AgentBase):
             raise NotImplementedError
         else:
             self.depth_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
+                (0, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
             self.ground_truth_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
+                (0, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
             self.mask_buffer = torch.empty(
-                (0, self.img_h, self.img_w)).float().to('cpu')
+                (0, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
             # self.recency_buffer = np.empty((0))
-            self.reward_buffer = torch.empty((0)).float().float().to('cpu')
+            self.reward_buffer = torch.empty((0)).float().to('cpu')
             logging.info('Built memory!')
 
 
@@ -316,29 +313,3 @@ class AgentTrain(AgentBase):
         else:
             self.learner.build_optimizer()
             logging.info('Built new policy optimizer!')
-
-
-    # def save_sample_affordance(self, num, prefix_name):
-    #     for ind in range(num):
-    #         img_ind = self.rng.integers(0, self.depth_buffer.shape[0])
-    #         img = self.depth_buffer[img_ind]
-    #         img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
-    #         pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
-    #         img_path_prefix = os.path.join(self.img_folder, prefix_name)
-
-    #         depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
-    #         depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)
-    #         img_rgb = Image.fromarray(depth_8bit, mode='RGB')
-    #         img_rgb.save(img_path_prefix + f'_{ind}_rgb.png')
-
-    #         cmap = plt.get_cmap('jet')
-    #         pred_detach = (torch.sigmoid(pred)).detach().cpu().numpy()
-    #         pred_detach = (pred_detach - np.min(pred_detach)) / (
-    #             np.max(pred_detach) - np.min(pred_detach))  # normalize
-    #         pred_cmap = cmap(pred_detach)
-    #         pred_cmap = (np.delete(pred_cmap, 3, 2) * 255).astype('uint8')
-    #         img_heat = Image.fromarray(pred_cmap, mode='RGB')
-    #         img_heat.save(img_path_prefix + f'_{ind}_heatmap.png')
-
-    #         img_overlay = Image.blend(img_rgb, img_heat, alpha=.5)
-    #         img_overlay.save(img_path_prefix + f'_{ind}_overlay.png')

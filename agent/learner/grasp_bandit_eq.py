@@ -33,6 +33,9 @@ class GraspBanditEq():
         # Grdient clipping
         self.cfg_gradient_clip = cfg.gradient_clip
 
+        # Backpropagating only though the label pixel or not
+        self.flag_backpropagate_label_pixel_only = cfg.backpropagate_label_pixel_only
+
         # Parameters - grasping
         self.num_theta = cfg.num_theta
         self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
@@ -40,7 +43,8 @@ class GraspBanditEq():
         self.max_z = cfg.max_depth
 
         # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
-        self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
+        # Note here the x axis is aligned with the image, but opposite of the table x-axis
+        self.p2x = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_w, endpoint=True)
         self.p2y = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_h, endpoint=True)
         self.img_size = cfg.img_w
         assert cfg.img_w == cfg.img_h
@@ -181,6 +185,10 @@ class GraspBanditEq():
         assert obs.shape[1] == 1
         N,_,H,W = obs.shape
 
+        # Convert to float if uint8
+        if obs.dtype == torch.uint8:
+            obs = obs.float()/255.0
+
         # Switch to evaluation mode for batchnorm
         self.latent_policy.eval()
         self.action_encoder.eval()
@@ -209,7 +217,11 @@ class GraspBanditEq():
         # Assume depth only
         assert obs.shape[1] == 1
         N,_,H,W = obs.shape
-        
+
+        # Convert to float if uint8
+        if obs.dtype == torch.uint8:
+            obs = obs.float()/255.0
+
         # Switch to evaluation mode for batchnorm
         self.latent_policy.eval()
         self.action_encoder.eval()
@@ -251,33 +263,54 @@ class GraspBanditEq():
             max_idx = fcn_pred.reshape(fcn_pred.shape[0],-1).argmax(1)
 
             # Get unravel indices corresponding to original shape of A
-            (pt, py, px) = np.unravel_index(max_idx, fcn_pred[0,:,:,:].shape)
+            (pt_rot_all, py_rot_all, px_rot_all) = np.unravel_index(max_idx, fcn_pred[0,:,:,:].shape)
         else:
-            pt = self.rng.integers(0, self.num_theta, size=N)   # exlusive
-            py = self.rng.integers(0, H, size=N)
-            px = self.rng.integers(0, W, size=N)
+            pt_rot_all = self.rng.integers(0, self.num_theta, size=N)   # exclusive
+            py_rot_all = self.rng.integers(0, H, size=N)
+            px_rot_all = self.rng.integers(0, W, size=N)
 
-        # Convert pixel to x/y
-        xy_all = np.concatenate((self.p2x[px][None], self.p2y[py][None])).T 
-        theta_all = self.thetas[pt]
+        # Convert pixel to x/y, but x/y are rotated
+        xy_rot_all = np.concatenate((self.p2x[px_rot_all][None], self.p2y[py_rot_all][None])).T
+        theta_all = self.thetas[pt_rot_all]
 
-        # Find the target z height
+        # Find the target z height at the pixels
         state_rot_all = state_rot_all.view(N, self.num_theta, H, W)
-        norm_z = state_rot_all[torch.arange(N), pt, py, px].detach().cpu().numpy()
+        norm_z = state_rot_all[torch.arange(N), pt_rot_all, py_rot_all, px_rot_all].detach().cpu().numpy()
         z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
-        # Rotate into local frame
+        # Rotate xy back
         rot_all = np.concatenate((
-            np.concatenate((np.cos(theta_all)[:,None,None], 
-                            np.sin(-theta_all)[:,None,None]), axis=-1),
-            np.concatenate((np.sin(theta_all)[:,None,None], 
-                            np.cos(theta_all)[:,None,None]), axis=-1)), axis=1)
-        xy_all_rotated = np.matmul(rot_all, xy_all[:,:,None])[:,:,0]
-        output = np.hstack((xy_all_rotated, 
+            np.concatenate((np.cos(-theta_all)[:,None,None],    # negative for rotating back
+                            -np.sin(-theta_all)[:,None,None]), axis=-1),
+            np.concatenate((np.sin(-theta_all)[:,None,None], 
+                            np.cos(-theta_all)[:,None,None]), axis=-1)), axis=1)
+        xy_all = np.matmul(rot_all, xy_rot_all[:,:,None])[:,:,0]
+
+        # Flip x axis so that x axis is aligned with the image x axis
+        xy_all[:,0] *= -1
+        
+        # Rotate pixels back - since rotating around the center, first find the offset from the center with right as x and down as y
+        py_rot_offset_all = py_rot_all - (H-1)/2
+        px_rot_offset_all = px_rot_all - (W-1)/2
+        pxy_rot_offset_all = np.hstack((px_rot_offset_all[:,None], py_rot_offset_all[:,None]))
+        pxy_offset_all = np.matmul(rot_all, pxy_rot_offset_all[:,:,None])[:,:,0]
+        py_all = pxy_offset_all[:,1] + (H-1)/2
+        px_all = pxy_offset_all[:,0] + (W-1)/2
+        py_all = np.round(py_all)
+        px_all = np.round(px_all)
+
+        # This is not ideal, but we have to clip since after rotation, some grasps can be out of bound if the original grasp is close to the four corners. Ideally we should not sample grasps there. For now, we can assume the object is not at the corners
+        py_all = np.clip(py_all, 0, H-1)
+        px_all = np.clip(px_all, 0, W-1)
+
+        output = np.hstack((xy_all, 
                             z_all[:,None], 
                             theta_all[:,None],
-                            py[:,None], 
-                            px[:,None]))
+                            py_all[:,None],
+                            px_all[:,None],
+                            py_rot_all[:,None],
+                            px_rot_all[:,None],
+                            ))
         return output
 
 
@@ -292,15 +325,21 @@ class GraspBanditEq():
             param.requires_grad = False
         for param in self.action_decoder.parameters():
             param.requires_grad = True
-            
+
         # Switch to training mode for batchnorm
         self.latent_policy.train()
         self.action_encoder.train()
         self.state_encoder.train()
         self.action_decoder.train()
 
-        # Extract from batch
-        obs_batch, ground_truth_batch, mask_batch, action_batch, _, _ = batch
+        # Unpack batch
+        obs_batch, ground_truth_batch, mask_batch, action_batch, _ = batch
+
+        # Convert data to float
+        if obs_batch.dtype == torch.uint8:
+            obs_batch = obs_batch.float()/255.0
+            ground_truth_batch = ground_truth_batch.float()
+            mask_batch = mask_batch.float()
 
         # Normalize action
         action_batch /= self.img_size
@@ -332,8 +371,9 @@ class GraspBanditEq():
         self.action_encoder_optimizer.zero_grad()
 
         # mask gradient for non-selected pixels
-        pred_train_batch.retain_grad()
-        pred_train_batch.register_hook(lambda grad: grad * mask_batch)
+        if self.flag_backpropagate_label_pixel_only:
+            pred_train_batch.retain_grad()
+            pred_train_batch.register_hook(lambda grad: grad * mask_batch)
 
         # Update action decoder paramaters using clipped gradients
         action_decoder_training_loss.backward()
@@ -364,8 +404,14 @@ class GraspBanditEq():
         self.action_decoder.train()
 
         # Extract from batch
-        obs_batch, ground_truth_batch, mask_batch, action_batch, reward_batch, scaling_batch = batch
+        obs_batch, ground_truth_batch, mask_batch, action_batch, reward_batch = batch
         _, _, H, W = obs_batch.shape
+
+        # Convert data to float
+        if obs_batch.dtype == torch.uint8:
+            obs_batch = obs_batch.float()/255.0
+            ground_truth_batch = ground_truth_batch.float()
+            mask_batch = mask_batch.float()
 
         # Normalize action
         action_batch /= self.img_size
@@ -395,9 +441,11 @@ class GraspBanditEq():
         ################### alignment loss ###################
     
         # Get indices of batch where reward is 1
+        if reward_batch is None:
+            reward_batch = torch.ones((len(obs_batch),)).to(self.device)
         indices = torch.where(reward_batch == 1)[0]
         if len(indices) <= 1:
-            alignment_loss = torch.tensor(0.0).to(obs_batch.device)
+            alignment_loss = torch.tensor(0.0).to(self.device)
             # logging.info('No good grasp in batch for alignment loss!')
         else:
             indices = indices[:-1] if len(indices) % 2 == 1 else indices
@@ -411,13 +459,13 @@ class GraspBanditEq():
             obs_2 = obs_batch[indices_2]
             actions_1 = action_batch[indices_1]
             actions_2 = action_batch[indices_2]
-            scaling_1 = scaling_batch[indices_1]
-            scaling_2 = scaling_batch[indices_2]
+            # scaling_1 = scaling_batch[indices_1]
+            # scaling_2 = scaling_batch[indices_2]
             #
-            true_positive_1 = scaling_1 > 1
-            true_negative_1 = scaling_1 <= 1
-            true_positive_2 = scaling_2 > 1
-            true_negative_2 = scaling_2 <= 1
+            # true_positive_1 = scaling_1 > 1
+            # true_negative_1 = scaling_1 <= 1
+            # true_positive_2 = scaling_2 > 1
+            # true_negative_2 = scaling_2 <= 1
 
             # Get latent state and then similarity matrix
             latent_state_1 = self.state_encoder(obs_1)
@@ -425,15 +473,15 @@ class GraspBanditEq():
             similarity_matrix = cosine_similarity(latent_state_1, latent_state_2)
             
             # extract true positive and true negative similarity scores
-            true_positive_similarity = torch.mean(similarity_matrix[true_positive_1, :][:, true_positive_2].flatten())
-            true_negative_similarity = torch.mean(similarity_matrix[true_negative_1, :][:, true_negative_2].flatten())
-            cross_similarity = torch.mean(
-                torch.cat((similarity_matrix[true_positive_1, :][:, true_negative_2].flatten(),     
-                           similarity_matrix[true_negative_1, :][:, true_positive_2].flatten())))
-            logging.info('True positive similarity: {}'.format(true_positive_similarity))
-            logging.info('True negative similarity: {}'.format(true_negative_similarity))
-            logging.info('Cross similarity: {}'.format(cross_similarity))
-            stats = [true_positive_similarity, true_negative_similarity, cross_similarity]
+            # true_positive_similarity = torch.mean(similarity_matrix[true_positive_1, :][:, true_positive_2].flatten())
+            # true_negative_similarity = torch.mean(similarity_matrix[true_negative_1, :][:, true_negative_2].flatten())
+            # cross_similarity = torch.mean(
+            #     torch.cat((similarity_matrix[true_positive_1, :][:, true_negative_2].flatten(),     
+            #                similarity_matrix[true_negative_1, :][:, true_positive_2].flatten())))
+            # logging.info('True positive similarity: {}'.format(true_positive_similarity))
+            # logging.info('True negative similarity: {}'.format(true_negative_similarity))
+            # logging.info('Cross similarity: {}'.format(cross_similarity))
+            # stats = [true_positive_similarity, true_negative_similarity, cross_similarity]
             
             # Add action to channel dimension of obs
             actions_1 = actions_1.unsqueeze(-1).unsqueeze(-1)
@@ -489,8 +537,9 @@ class GraspBanditEq():
         self.action_decoder.zero_grad()
 
         # mask gradient for non-selected pixels
-        pred_train_batch.retain_grad()
-        pred_train_batch.register_hook(lambda grad: grad * mask_batch)
+        if self.flag_backpropagate_label_pixel_only:
+            pred_train_batch.retain_grad()
+            pred_train_batch.register_hook(lambda grad: grad * mask_batch)
 
         # Update action decoder paramaters using clipped gradients
         combined_loss.backward()

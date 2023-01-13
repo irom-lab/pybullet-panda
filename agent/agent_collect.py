@@ -62,35 +62,39 @@ class AgentCollect(AgentTrain):
 
 
     def store_transition(self, s, a, r, s_, done, info):
+        """Save images as uint8"""
 
         # Indices to be replaced in the buffer for current step
-        num_new = s.shape[0]
+        num_new, _, H, W = s.shape
         assert num_new == 1
 
-        # Extract action
-        _, _, _, theta, py, px = a
-        action_tensor = torch.tensor([[py, px]]).float()
+        # Extract action - note that the rotated pixels are the ones actually executed
+        x, y, z, theta, py, px, py_rot, px_rot = a
+        action_tensor = torch.tensor([[py_rot, px_rot]]).float()
         reward_tensor = torch.tensor([r]).float()
 
-        # Convert depth to tensor
-        depth = s.detach().to('cpu')    # 1x1xHxW
+        # Convert depth to tensor, uint8 to float32
+        depth = s.detach().to('cpu')
+        depth = depth.float()/255.0
 
-        # Rotate according to theta
-        depth_rotated = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)  # 1xHxW
+        # Rotate to theta
+        depth_rot = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
 
-        # Debug
-        print(theta, py, px)
-        import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(1, 2)
-        axes[0].imshow(depth.squeeze(0).squeeze(0))
-        axes[1].imshow(depth_rotated.squeeze(0))
-        axes[0].set_title('Original')
-        axes[1].set_title('Rotated')
-        plt.show()
+        # # Debug
+        # print('Executed pos (should match dot in the original view): ', (x,y,z))
+        # import matplotlib.pyplot as plt
+        # fig, axes = plt.subplots(1, 2)
+        # axes[0].imshow(depth.squeeze(0).squeeze(0))
+        # axes[0].scatter(px, py, c='r')
+        # axes[1].imshow(depth_rot.squeeze(0))
+        # axes[1].scatter(px_rot, py_rot, c='r')
+        # axes[0].set_title('Original')
+        # axes[1].set_title('Rotated (saved)')
+        # plt.show()
 
         # append, assume not filled up
         self.depth_buffer = torch.cat(
-            (self.depth_buffer, depth_rotated))[:self.memory_capacity]
+            (self.depth_buffer, (depth_rot*255).byte()))[:self.memory_capacity]
         self.action_buffer = torch.cat(
             (self.action_buffer, action_tensor))[:self.memory_capacity]
         self.reward_buffer = torch.cat(

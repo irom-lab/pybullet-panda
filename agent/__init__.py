@@ -1,5 +1,6 @@
 from .agent_train import AgentTrain
 from .agent_imitate import AgentImitate
+from .agent_imitate_eq import AgentImitateEq
 from .agent_collect import AgentCollect
 from .agent_train_eq import AgentTrainEq
 
@@ -9,6 +10,8 @@ def get_agent(name):
         return AgentTrain
     elif name == 'AgentImitate':
         return AgentImitate
+    elif name == 'AgentImitateEq':
+        return AgentImitateEq
     elif name == 'AgentCollect':
         return AgentCollect
     elif name == 'AgentTrainEq':

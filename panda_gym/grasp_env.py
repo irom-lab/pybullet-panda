@@ -92,9 +92,6 @@ class GraspEnv(PandaEnv):
         self._obj_initial_pos_list = {}
 
         # Load urdf
-        task.obj_pos[0] = 0.6
-        task.obj_pos[1] = 0.05
-        task.obj_quat[2] = 0.5
         obj_id = self._p.loadURDF(task.obj_path,
                                   basePosition=task.obj_pos,
                                   baseOrientation=task.obj_quat,

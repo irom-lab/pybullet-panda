@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import random
+from omegaconf import OmegaConf
 
 from util.numeric import sample_uniform
 from util.geom import euler2quat
@@ -21,7 +22,7 @@ default_z_pos = 0.15
 # Generate
 task_id = 0
 while task_id < num_task:
-    task = {}
+    task = OmegaConf.create()
     
     if task_id % 2 == 0:    # left, small
         global_scaling = 1
@@ -36,10 +37,10 @@ while task_id < num_task:
     y_pos = sample_uniform(rng, obj_y_range)
 
     # Add to task
-    task['obj_pos'] = [x_pos, y_pos, z_pos]
-    task['obj_path'] = 'data/sample/mug/3.urdf'
-    task['obj_quat'] = [0,0,0,1]
-    task['global_scaling'] = global_scaling
+    task.obj_pos = [x_pos, y_pos, z_pos]
+    task.obj_path = 'data/sample/mug/3.urdf'
+    task.obj_quat = [0,0,0,1]
+    task.global_scaling = global_scaling
     save_tasks += [task]
     task_id += 1
 

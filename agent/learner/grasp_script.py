@@ -19,7 +19,8 @@ class GraspScript():
         self.norm_z_threshold = cfg.norm_z_threshold
 
         # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
-        self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
+        # Note here the x axis is aligned with the image, but opposite of the table x-axis
+        self.p2x = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_w, endpoint=True)
         self.p2y = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_h, endpoint=True)
 
         # Random perturbation
@@ -39,15 +40,28 @@ class GraspScript():
 
 
     def forward(self, obs, extra=None, **kwargs):
+        """Different from grasp_bandit, here we do not rotate observation, but just pick pixels from the original observation, and then randomly pick theta."""
+        
         # Assume depth only
         assert obs.shape[1] == 1
         N,_,H,W = obs.shape
         obs = obs.detach().cpu().numpy()[:,0]
 
+        # Convert to float if uint8
+        if obs.dtype == np.uint8:
+            obs = obs/255.0
+
         # Sample any pixel with positive depth
-        py = np.empty((0), dtype='int')
-        px = np.empty((0), dtype='int')
+        py_all = np.empty((0), dtype='int')
+        px_all = np.empty((0), dtype='int')
         for n in range(N):
+
+            # Flip obs back in x if scaling
+            if extra is not None:   # not the best design
+                scaling = extra[n]
+                if scaling > 1:
+                    obs[n] = np.flip(obs[n], axis=1)
+
             obs_single_ind = np.where(obs[n] > self.norm_z_threshold)
             ind = self.rng.integers(0, len(obs_single_ind[0]), size=1)
             py_single = obs_single_ind[0][ind].astype('int')
@@ -59,33 +73,47 @@ class GraspScript():
             py_single = np.clip(py_single, 0, H-1)
             px_single = np.clip(px_single, 0, W-1)
 
-            py = np.append(py, py_single)
-            px = np.append(px, px_single)
+            py_all = np.append(py_all, py_single)
+            px_all = np.append(px_all, px_single)
 
         # Sample random theta
-        pt = self.rng.integers(0, self.num_theta, size=N)   # exclusive
+        pt_all = self.rng.integers(0, self.num_theta, size=N)   # exclusive
 
-        # Convert pixel to x/y
-        xy_all = np.concatenate((self.p2x[px][None], self.p2y[py][None])).T
-        theta_all = self.thetas[pt]
+        # Convert pixel to x/y, but x/y are rotated
+        xy_all = np.concatenate((self.p2x[px_all][None], self.p2y[py_all][None])).T
+        theta_all = self.thetas[pt_all]
 
-        # Find the target z height
-        norm_z = obs[np.arange(N), py, px]
+        # Flip x axis so that x axis is aligned with the image x axis
+        xy_all[:,0] *= -1
+
+        # Find the target z height at the pixels
+        norm_z = obs[torch.arange(N), py_all, px_all]
         z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
-        # Rotate into local frame
+        # Rotate pixels to theta- since rotating around the center, first find the offset from the center with right as x and down as y
         rot_all = np.concatenate((
-            np.concatenate((np.cos(theta_all)[:,None,None], 
-                            np.sin(-theta_all)[:,None,None]), axis=-1),
+            np.concatenate((np.cos(theta_all)[:,None,None],
+                            -np.sin(theta_all)[:,None,None]), axis=-1),
             np.concatenate((np.sin(theta_all)[:,None,None], 
                             np.cos(theta_all)[:,None,None]), axis=-1)), axis=1)
-        xy_all_rotated = np.matmul(rot_all, xy_all[:,:,None])[:,:,0]
-        output = np.hstack((xy_all_rotated, 
-                            z_all[:,None], 
-                            theta_all[:,None],
-                            py[:,None], 
-                            px[:,None]))
-        return output
+        py_offset_all = py_all - (H-1)/2
+        px_offset_all = px_all - (W-1)/2
+        pxy_offset_all = np.hstack((px_offset_all[:,None], py_offset_all[:,None]))
+        pxy_rot_offset_all = np.matmul(rot_all, pxy_offset_all[:,:,None])[:,:,0]
+        py_rot_all = pxy_rot_offset_all[:,1] + (H-1)/2
+        px_rot_all = pxy_rot_offset_all[:,0] + (W-1)/2
+        py_rot_all = np.round(py_rot_all)
+        px_rot_all = np.round(px_rot_all)
+
+        # Return all data
+        return np.hstack((xy_all, 
+                          z_all[:,None], 
+                          theta_all[:,None],
+                          py_all[:,None],
+                          px_all[:,None],
+                          py_rot_all[:,None],
+                          px_rot_all[:,None],
+                          ))
 
 
     def __call__(self, state, extra=None, verbose=False):

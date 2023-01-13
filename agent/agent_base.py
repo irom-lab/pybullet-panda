@@ -32,9 +32,9 @@ class AgentBase():
         self.save_metric = cfg.save_metric
         self.use_wandb = cfg.use_wandb
         self.out_folder = cfg.out_folder
-        self.reset_save_info(self.out_folder)
         self.flag_save_memory = cfg.save_memory
         self.flag_save_optim = cfg.save_optim
+        self.reset_save_info(self.out_folder)
 
         # Load tasks
         if hasattr(cfg, 'dataset'):
@@ -52,10 +52,12 @@ class AgentBase():
         self.pq_top_k = PriorityQueue()
 
         # Save memory
-        self.memory_folder = os.path.join(out_folder, 'memory')
-        os.makedirs(self.memory_folder, exist_ok=True)
-        self.optim_folder = os.path.join(out_folder, 'optim')
-        os.makedirs(self.optim_folder, exist_ok=True)
+        if self.flag_save_memory:
+            self.memory_folder = os.path.join(out_folder, 'memory')
+            os.makedirs(self.memory_folder, exist_ok=True)
+        if self.flag_save_optim:
+            self.optim_folder = os.path.join(out_folder, 'optim')
+            os.makedirs(self.optim_folder, exist_ok=True)
 
         # Save loss and eval info, key is step number
         self.loss_record = {}
