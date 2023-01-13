@@ -6,17 +6,17 @@ class VecEnvPanda(VecEnvBase):
     def __init__(self, venv, cpu_offset, device, cfg):
         super(VecEnvPanda, self).__init__(venv, cpu_offset, device)
         self.cfg = cfg
-        # self.use_append = config_env.USE_APPEND
+        # self.use_extra = config_env.use_extra
 
-    # def get_append(self, states):
-    #     if self.use_append:
+    # def get_extra(self, states):
+    #     if self.use_extra:
     #         method_args_list = [(state, ) for state in states]
-    #         _append_all = self.venv.env_method_arg('_get_append',
+    #         _extra_all = self.venv.env_method_arg('_get_extra',
     #                                                method_args_list,
     #                                                indices=range(self.n_envs))
-    #         append_all = torch.FloatTensor(
-    #             [append[0] for append in _append_all])
-    #         return append_all.to(self.device)
+    #         extra_all = torch.FloatTensor(
+    #             [extra[0] for extra in _extra_all])
+    #         return extra_all.to(self.device)
     #     else:
     #         return None
 

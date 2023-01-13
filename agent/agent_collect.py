@@ -1,11 +1,7 @@
 import os
 import numpy as np
-import random
 import torch
 import logging
-from copy import deepcopy
-from PIL import Image
-import matplotlib.pyplot as plt
 
 from agent.agent_train import AgentTrain
 from util.image import rotate_tensor
@@ -16,6 +12,7 @@ from util.misc import save_obj
 class AgentCollect(AgentTrain):
     def __init__(self, cfg, venv, verbose=True):
         """
+        Collect expert data for imitation. Learner can be scripted, or (to be implemented).
         """
         super().__init__(cfg, venv)
         self.action_dim = 2
@@ -65,8 +62,6 @@ class AgentCollect(AgentTrain):
 
 
     def store_transition(self, s, a, r, s_, done, info):
-        """Different from typical RL buffer setup"""
-        # TODO: batch store?
 
         # Indices to be replaced in the buffer for current step
         num_new = s.shape[0]
@@ -78,14 +73,24 @@ class AgentCollect(AgentTrain):
         reward_tensor = torch.tensor([r]).float()
 
         # Convert depth to tensor
-        new_depth = s.detach().to('cpu')
+        depth = s.detach().to('cpu')    # 1x1xHxW
 
         # Rotate according to theta
-        new_depth = rotate_tensor(new_depth, theta=torch.tensor(theta)).squeeze(1)
+        depth_rotated = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)  # 1xHxW
+
+        # Debug
+        print(theta, py, px)
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(1, 2)
+        axes[0].imshow(depth.squeeze(0).squeeze(0))
+        axes[1].imshow(depth_rotated.squeeze(0))
+        axes[0].set_title('Original')
+        axes[1].set_title('Rotated')
+        plt.show()
 
         # append, assume not filled up
         self.depth_buffer = torch.cat(
-            (self.depth_buffer, new_depth))[:self.memory_capacity]
+            (self.depth_buffer, depth_rotated))[:self.memory_capacity]
         self.action_buffer = torch.cat(
             (self.action_buffer, action_tensor))[:self.memory_capacity]
         self.reward_buffer = torch.cat(
@@ -98,4 +103,3 @@ class AgentCollect(AgentTrain):
 
         self.action_buffer = torch.empty((0, self.action_dim)).float().to('cpu')
         logging.info('Built action buffer!')
-

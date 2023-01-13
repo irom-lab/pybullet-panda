@@ -1,10 +1,12 @@
 import torch
 import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
 
 
 def rotate_tensor(orig_tensor, theta):
     """
-	Rotate images clockwise
+	Rotate images clockwise.
 	"""
     affine_mat = torch.tensor([[torch.cos(theta), torch.sin(theta), 0],
                                [-torch.sin(theta), torch.cos(theta), 0]]).view(2,3,1)
@@ -16,6 +18,38 @@ def rotate_tensor(orig_tensor, theta):
                                            flow_grid,
                                            mode='nearest',
                                            align_corners=False)
+
+
+def save_affordance_map(img, pred, path_prefix):
+    """
+    Save affordance map.
+    
+    Args:
+        img (Tensor): H,W, between [0,1]
+        pred (Tensor): unnormalized
+        path_prefix (str):
+    """
+    with torch.no_grad():
+        # img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
+        # pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
+        # img_path_prefix = os.path.join(self.img_folder, prefix_name)
+
+        depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
+        depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)
+        img_rgb = Image.fromarray(depth_8bit, mode='RGB')
+        # img_rgb.save(path_prefix + '_rgb.png')
+
+        cmap = plt.get_cmap('jet')
+        pred_detach = (torch.sigmoid(pred)).detach().cpu().numpy()
+        pred_detach = (pred_detach - np.min(pred_detach)) / (
+            np.max(pred_detach) - np.min(pred_detach))  # normalize
+        pred_cmap = cmap(pred_detach)
+        pred_cmap = (np.delete(pred_cmap, 3, 2) * 255).astype('uint8')
+        img_heat = Image.fromarray(pred_cmap, mode='RGB')
+        # img_heat.save(path_prefix + '_heatmap.png')
+
+        img_overlay = Image.blend(img_rgb, img_heat, alpha=.5)
+        img_overlay.save(path_prefix + '_overlay.png')
 
 
 def rgba2rgb(rgba, background=(255, 255, 255)):

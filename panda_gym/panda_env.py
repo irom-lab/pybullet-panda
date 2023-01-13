@@ -6,6 +6,7 @@ import torch
 import pybullet as p
 from pybullet_utils import bullet_client as bc
 from collections import deque
+from omegaconf import OmegaConf
 
 from util.image import rgba2rgb
 from util.geom import quat2rot, euler2quat, quatMult, log_rot, quatInverse, quat2euler
@@ -24,15 +25,15 @@ class PandaEnv():
         self.task = task
         self.render = render
         if camera_param is None:
-            camera_param = {}
+            camera_param = OmegaConf.create()
             camera_height = 0.40
-            camera_param['pos'] = np.array([1.0, 0, camera_height])
-            camera_param['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
-            camera_param['img_w'] = 64
-            camera_param['img_h'] = 64
-            camera_param['aspect'] = 1
-            camera_param['fov'] = 70    # vertical fov in degrees
-            camera_param['max_depth'] = camera_height
+            camera_param.pos = [1.0, 0, camera_height]
+            camera_param.euler = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+            camera_param.img_w = 64
+            camera_param.img_h = 64
+            camera_param.aspect = 1
+            camera_param.fov = 70    # vertical fov in degrees
+            camera_param.max_depth = camera_height
         self._camera_param = camera_param
 
         # PyBullet instance
@@ -85,7 +86,7 @@ class PandaEnv():
         self._finger_close_vel = -0.10
 
         # Default joint angles
-        self._default_joint_angles = [0, -0.35, 0, -2., 0, 3.483, 0.785, 0.0, 0.0]
+        self._default_joint_angles = [-3.14, -0.35, 0, -2., 0, 3.483, 0.785, 0.0, 0.0]
 
         # EE offset from finger center
         self.ee_finger_offset = 0.15
@@ -618,48 +619,186 @@ class PandaEnv():
 
     ################# Observation #################
 
-    def _get_obs(self):
-        raise NotImplementedError
-
-
     def get_overhead_obs(self, camera_param):
         far = 1000.0
         near = 0.01
-        camera_pos = np.array(camera_param['pos'])
-        rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_param['euler']))
+        img_w = camera_param.img_w
+        img_h = camera_param.img_h
+        camera_pos = np.array(camera_param.pos)
+        rot_matrix = quat2rot(self._p.getQuaternionFromEuler(camera_param.euler))
         init_camera_vector = (0, 0, 1)  # z-axis
         init_up_vector = (1, 0, 0)  # x-axis
         camera_vector = rot_matrix.dot(init_camera_vector)
         up_vector = rot_matrix.dot(init_up_vector)
 
+        # Get view and projection matrices
         view_matrix = self._p.computeViewMatrix(
             camera_pos, camera_pos + 0.1 * camera_vector, up_vector)
         projection_matrix = self._p.computeProjectionMatrixFOV(
-            fov=camera_param['fov'],
-            aspect=camera_param['aspect'],
+            fov=camera_param.fov,
+            aspect=camera_param.aspect,
             nearVal=near,
             farVal=far)
 
+        # Get RGB and depth
         _, _, rgb, depth, _ = self._p.getCameraImage(
-            camera_param['img_w'],
-            camera_param['img_h'],
+            img_w,
+            img_h,
             view_matrix,
             projection_matrix,
-            flags=self._p.ER_NO_SEGMENTATION_MASK)
+            flags=self._p.ER_NO_SEGMENTATION_MASK,
+            # renderer=self._p.ER_BULLET_HARDWARE_OPENGL
+            )
+        rgb = rgba2rgb(rgb) # account for alpha
+
+        # Normalize, convert to byte
         out = []
-        if camera_param['use_depth']:
+        if camera_param.use_depth:
             depth = far * near / (far - (far - near) * depth)
-            depth = (camera_param['overhead_max_depth'] - depth) / (camera_param['overhead_max_depth'] - camera_param['overhead_min_depth'])
-            depth = depth.clip(min=0., max=1.)
-            if camera_param['save_byte']:
-                depth = np.uint8(depth * 255)
-            out += [depth[np.newaxis]]
-        if camera_param['use_rgb']:
-            # TODO: save_byte option
-            rgb = rgba2rgb(rgb).transpose(2, 0, 1)
-            out += [rgb]
+            norm_depth = (camera_param.max_depth - depth) / (camera_param.max_depth - camera_param.min_depth)
+            norm_depth = norm_depth.clip(min=0., max=1.)
+            norm_depth = np.uint8(norm_depth * 255)
+            out += [norm_depth[np.newaxis]]
+        if camera_param.use_rgb:
+            out += [rgb.transpose(2, 0, 1)] # transpose to (C, H, W), uint8
         out = np.concatenate(out)
+
+        # #################### Get orthographic image ####################
+
+        # # Get point cloud from depth and camera intrinsics
+        # # PyBullet calculates fx and fy from fov (vertical) and aspect ratio
+        # # https://stackoverflow.com/questions/60430958/understanding-the-view-and-projection-matrix-from-pybullet/60450420#60450420
+        # focal_len = img_h / (2*np.tan(camera_param.fov*np.pi/180/2))
+        # intrinsics = (focal_len, 0, img_w//2,  # apply img_w/2 to center since pybullet assumes (0,0) as center, (0,0) is bottom left???
+        #               0, focal_len, img_h//2, 
+        #               0, 0, 1)
+        # intrinsics = np.float32(intrinsics).reshape(3, 3)
+        # points = self.get_pointcloud(depth, intrinsics)
+
+        # # Transform point cloud to world frame
+        # transform = np.eye(4)
+        # position = np.float32(camera_pos).reshape(3, 1)
+        # transform[:3, :] = np.hstack((rot_matrix, position))
+        # points = self.transform_pointcloud(points, transform)
+
+        # # Unproject the point cloud onto an orthographic plane, while also transforming the image
+        # workspace_half_dim = np.tan(camera_param.fov/2*np.pi/180)*camera_param.pos[2]
+        # bounds = np.array([[camera_pos[0]-workspace_half_dim, camera_pos[0]+workspace_half_dim],
+        #                    [camera_pos[1]-workspace_half_dim, camera_pos[1]+workspace_half_dim],
+        #                    [0, 1]]) # include all pixels
+        # pixel_size = workspace_half_dim / (img_w / 2)
+        # heightmap, colormap = self.get_heightmap(points, rgb, bounds, pixel_size)
+
+        # # Visualize
+        # import matplotlib.pyplot as plt
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # ax.scatter(points[:, :, 0], points[:, :, 1], points[:, :, 2])
+        # ax.axis('equal')
+        # ax.set_xlabel('X axis')
+        # ax.set_ylabel('Y axis')
+        # ax.set_zlabel('Z axis')
+        # ax.set_title('Point cloud in world frame.')
+        # plt.show()
+        # import matplotlib.pyplot as plt
+        # print('bounds: ', bounds)
+        # print('pixel size: ', pixel_size)
+        # fig, axes = plt.subplots(1, 3)
+        # axes[0].imshow(rgb)
+        # axes[1].imshow(colormap)
+        # axes[2].imshow(heightmap)
+        # axes[0].set_title('Original RGB')
+        # axes[1].set_title('Orthographic RGB')
+        # axes[2].set_title('Orthographic depth')
+        # plt.show()
+
         return out  # uint8
+
+
+    def get_pointcloud(self, depth, intrinsics):
+        """Get 3D pointcloud from perspective depth image.
+        Args:
+        depth: HxW float array of perspective depth in meters.
+        intrinsics: 3x3 float array of camera intrinsics matrix.
+        Returns:
+        points: HxWx3 float array of 3D points in camera coordinates.
+        """
+        height, width = depth.shape
+        xlin = np.linspace(0, width - 1, width)
+        ylin = np.linspace(0, height - 1, height)
+        px, py = np.meshgrid(xlin, ylin)
+        px = (px - intrinsics[0, 2]) * (depth / intrinsics[0, 0])
+        py = (py - intrinsics[1, 2]) * (depth / intrinsics[1, 1])
+        points = np.float32([-py, px, depth]).transpose(1, 2, 0) # HxWx3
+        # convert camera frame (right as x, up as y) to image frame (right as x, down as y)??? not sure this makes sense
+        return points
+
+
+    def transform_pointcloud(self, points, transform):
+        """Apply rigid transformation to 3D pointcloud.
+        Args:
+        points: HxWx3 float array of 3D points in camera coordinates.
+        transform: 4x4 float array representing a rigid transformation matrix.
+        Returns:
+        points: HxWx3 float array of transformed 3D points.
+        """
+        padding = ((0, 0), (0, 0), (0, 1))
+        homogen_points = np.pad(points.copy(), padding,
+                                'constant', constant_values=1)
+        for i in range(3):
+            points[Ellipsis, i] = np.sum(transform[i, :] * homogen_points, axis=-1)
+        return points
+
+
+    def get_heightmap(self, points, colors, bounds, pixel_size):
+        """Get top-down (z-axis) orthographic heightmap image from 3D pointcloud. The colormap will show shadows of the objects in black (RGB value of 0,0,0).
+
+        Args:
+        points: HxWx3 float array of 3D points in world coordinates.
+        colors: HxWx3 uint8 array of values in range 0-255 aligned with points.
+        bounds: 3x2 float array of values (rows: X,Y,Z; columns: min,max) defining
+            region in 3D space to generate heightmap in world coordinates.
+        pixel_size: float defining size of each pixel in meters.
+
+        Returns:
+        heightmap: HxW float array of height (from lower z-bound) in meters.
+        colormap: HxWx3 uint8 array of backprojected color aligned with heightmap.
+        xyzmap: HxWx3 float array of XYZ points in world coordinates.
+        """
+        width = int(np.round((bounds[0, 1] - bounds[0, 0]) / pixel_size))
+        height = int(np.round((bounds[1, 1] - bounds[1, 0]) / pixel_size))
+        heightmap = np.zeros((height, width), dtype=np.float32)
+        colormap = np.zeros((height, width, colors.shape[-1]), dtype=np.uint8)
+        # xyzmap = np.zeros((height, width, 3), dtype=np.float32)
+
+        # Filter out 3D points that are outside of the predefined bounds.
+        ix = (points[Ellipsis, 0] >= bounds[0, 0]) & (points[Ellipsis, 0] < bounds[0, 1])
+        iy = (points[Ellipsis, 1] >= bounds[1, 0]) & (points[Ellipsis, 1] < bounds[1, 1])
+        iz = (points[Ellipsis, 2] >= bounds[2, 0]) & (points[Ellipsis, 2] < bounds[2, 1])
+        valid = ix & iy & iz
+        points = points[valid]
+        colors = colors[valid]
+
+        # Sort 3D points by z-value, which works with array assignment to simulate
+        # z-buffering for rendering the heightmap image.
+        iz = np.argsort(points[:, -1])
+        points, colors = points[iz], colors[iz]
+        px = np.int32(np.floor((bounds[0, 1] - points[:, 0]) / pixel_size)) # since px increasing is x decreasing
+        py = np.int32(np.floor((points[:, 1] - bounds[1, 0]) / pixel_size))
+        px = np.clip(px, 0, width - 1)
+        py = np.clip(py, 0, height - 1)
+        heightmap[py, px] = points[:, 2] - bounds[2, 0]
+        for c in range(colors.shape[-1]):
+            colormap[py, px, c] = colors[:, c]
+            # xyzmap[py, px, c] = points[:, c]
+            # colormap = colormap[::-1, :, :]  # Flip up-down.
+        # xv, yv = np.meshgrid(np.linspace(bounds[0, 0], bounds[0, 1], height),
+        #                      np.linspace(bounds[1, 0], bounds[1, 1], width))
+        # xyzmap[:, :, 0] = xv
+        # xyzmap[:, :, 1] = yv
+        # xyzmap = xyzmap[::-1, :, :]  # Flip up-down.
+        # heightmap = heightmap[::-1, :]  # Flip up-down.
+        return heightmap, colormap
 
 
     def get_wrist_obs(self, camera_param):    # todo: use dict for params

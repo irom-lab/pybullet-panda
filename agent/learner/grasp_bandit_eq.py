@@ -205,7 +205,7 @@ class GraspBanditEq():
         return fcn_pred
 
 
-    def forward(self, obs, append=None, flag_random=False, verbose=True):
+    def forward(self, obs, extra=None, flag_random=False, verbose=True):
         # Assume depth only
         assert obs.shape[1] == 1
         N,_,H,W = obs.shape

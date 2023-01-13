@@ -4,6 +4,7 @@ import random
 import numpy as np
 import itertools
 import math
+from omegaconf import OmegaConf
 from util.misc import save_obj, load_obj
 
 random.seed(1000)
@@ -41,18 +42,18 @@ obj_radius_all = load_obj(os.path.join(urdf_parent_path, 'obj_radius_all'))
 max_num_attempt = 100000
 task_id = 0
 while task_id < num_task:
-    task = {}
+    task = OmegaConf.create()
     
     # Sample object
     obj_id_task = random.sample(obj_id_list, num_obj_per_task)    # without replacement
-    task['obj_path_list'] = [urdf_parent_path + str(obj_id) + '.urdf' for obj_id in obj_id_task]
+    task.obj_path_list = [urdf_parent_path + str(obj_id) + '.urdf' for obj_id in obj_id_task]
 
     # Sample scale
     obj_scale_task = np.random.uniform(low=obj_scale_range[0], high=obj_scale_range[1], size=(num_obj_per_task,))
-    task['obj_scale_all'] = obj_scale_task
+    task.obj_scale_all = list(obj_scale_task)
 
     # Save height
-    task['obj_height_all'] = [obj_height_all[obj_id] for obj_id in obj_id_task]
+    task.obj_height_all = [obj_height_all[obj_id] for obj_id in obj_id_task]
 
     # Get radius
     obj_radius_task = [obj_scale_task[ind] * obj_radius_all[obj_id] for ind, obj_id in enumerate(obj_id_task)]
@@ -88,12 +89,12 @@ while task_id < num_task:
         continue
     print('here', num_attempt, task_id)
         
-    task['obj_state_all'] = obj_pose_all  # xyz, yaw, pitch, roll
+    task.obj_state_all = obj_pose_all  # xyz, yaw, pitch, roll
     
     # Sample color
     obj_rgb_all = np.random.uniform(low=0, high=1, size=(num_obj_per_task, 3))
     obj_rgba_all = np.hstack((obj_rgb_all, np.ones((num_obj_per_task, 1))))
-    task['obj_rgba_all'] = obj_rgba_all
+    task.obj_rgba_all = obj_rgba_all
 
     # Add to task
     save_tasks += [task]

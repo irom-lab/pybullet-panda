@@ -14,6 +14,7 @@ class GraspFlipEnv(GraspEnv):
         sigma=0.03,
         x_offset=0.5,
         grasp_z_offset=-0.03,
+        lift_threshold=0.02,
     ):
         """
         """
@@ -25,6 +26,7 @@ class GraspFlipEnv(GraspEnv):
             sigma=sigma,
             x_offset=x_offset,
             grasp_z_offset=grasp_z_offset,
+            lift_threshold=lift_threshold,
         )
 
 

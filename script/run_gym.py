@@ -4,7 +4,7 @@ import argparse
 import pretty_errors
 import wandb
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 from omegaconf import OmegaConf
 import logging
 import time
@@ -17,7 +17,7 @@ from panda_gym import get_env, get_vec_env, get_vec_env_cfg
 from panda_gym.util.vec_env import make_vec_envs
 
 
-def main(cfg):
+def main(cfg, no_wandb=False):
     ################### Logging ###################
     log_file = os.path.join(cfg.out_folder, 'log.log')
     log_fh = logging.FileHandler(log_file, mode='w+')
@@ -30,6 +30,8 @@ def main(cfg):
 
     ###################### cfg ######################
     os.makedirs(cfg.out_folder, exist_ok=True)
+    if no_wandb:    # overwrite
+        cfg.use_wandb = False
     if cfg.use_wandb:
         wandb.init(entity='allenzren',
                    project=cfg.project,
@@ -63,6 +65,7 @@ def main(cfg):
     # Use same seed
     cfg.policy.seed = cfg.seed
     cfg.policy.learner.seed = cfg.seed
+    cfg.policy.utility.seed = cfg.seed
 
     ###################### Env ######################
     # Common args
@@ -92,7 +95,7 @@ def main(cfg):
     # logging.info('Total parameters in policy: {}'.format(
     #     sum(p.numel() for p in agent.learner.parameters()
     #         if p.requires_grad)))
-    logging.info("Using devic: {}".format(cfg.device))
+    logging.info("Using device: {}".format(cfg.device))
 
     # Learn
     start_time = time.time()
@@ -111,6 +114,9 @@ if __name__ == "__main__":
                         "--cfg_file",
                         help="cfg file path",
                         type=str)
+    parser.add_argument("-no_wb",
+                        "--no_wandb",
+                        action="store_true")
     args = parser.parse_args()
     cfg = OmegaConf.load(args.cfg_file)
-    main(cfg)
+    main(cfg, args.no_wandb)

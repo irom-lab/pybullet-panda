@@ -4,20 +4,19 @@ import random
 import torch
 import logging
 import wandb
-from copy import deepcopy
-from PIL import Image
-import matplotlib.pyplot as plt
 
 from agent.agent_base import AgentBase
 from agent.learner import get_learner
+from agent.utility import get_utility
 from util.image import rotate_tensor
-
 from util.scheduler import StepLRFixed
+from util.image import save_affordance_map
 
 
 class AgentTrain(AgentBase):
     def __init__(self, cfg, venv, verbose=True):
         """
+        Run policy training while collecting experiences from environments.
         """
         super().__init__(cfg, venv)
         self.store_cfg(cfg)
@@ -29,7 +28,7 @@ class AgentTrain(AgentBase):
         self.module_all = [self.learner]    # for saving models
 
         # Utility - helper functions for envs
-        # self.utility = get_utility(cfg.utility.name)(cfg.utility)
+        self.utility = get_utility(cfg.utility.name)(cfg.utility)
 
         # Affordance map
         self.img_folder = os.path.join(cfg.out_folder, 'img')
@@ -46,11 +45,9 @@ class AgentTrain(AgentBase):
         self.num_update = max(1, int(cfg.replay_ratio*self.update_freq/self.batch_size))
         self.check_freq = cfg.check_freq
         self.num_warmup_step_percentage = cfg.num_warmup_step_percentage
-        self.num_episode_per_eval = cfg.num_eval_episode
+        self.num_epi_per_eval = cfg.num_eval_episode
         self.cfg_eps = cfg.eps
         self.num_affordance = cfg.num_affordance
-        self.batch_positive_ratio = cfg.batch_positive_ratio
-        self.imitate_data_path = cfg.imitate_data_path
 
 
     def learn(self, tasks=None, 
@@ -108,10 +105,8 @@ class AgentTrain(AgentBase):
 
                 # Update policy
                 loss = 0
-                # if len(torch.where(self.reward_buffer == 1)[0]) > 2*self.batch_size:
-                #     logging.info('Updating!')
                 for _ in range(self.num_update):
-                    batch_train = self.unpack_batch(self.sample_batch(positive_ratio=self.batch_positive_ratio))
+                    batch_train = self.unpack_batch(self.sample_batch())
                     loss_batch = self.learner.update(batch_train)
                     loss += loss_batch
                 loss /= self.num_update
@@ -121,19 +116,11 @@ class AgentTrain(AgentBase):
                 if self.use_wandb:
                     wandb.log(
                         {
-                            "Train loss": loss,
-                        },
-                        step=self.cnt_step,
-                        commit=False)
-
-                # Reset simulation
-                # self.reset_sim()
+                            "Train - loss": loss,
+                        }, step=self.cnt_step, commit=False)
 
                 # Count number of optimization
                 cnt_opt += 1
-
-                # Clear GPU cache
-                torch.cuda.empty_cache()
 
                 # Switch to evaluation
                 if cnt_opt % self.check_freq == 0 and cnt_opt > 0:
@@ -141,48 +128,50 @@ class AgentTrain(AgentBase):
 
             # Evaluate
             else:
+                num_epi_run, _ = self.run_steps(num_epi=self.num_epi_per_eval)
+                eval_reward_cum = self.eval_reward_cum_all / num_epi_run
+                self.eval_record[self.cnt_step] = (eval_reward_cum, )
+
+                # Report
                 logging.info("======================================")
                 logging.info(f'Evaluating at step {self.cnt_step}...')
-                num_episode_run, _ = self.run_steps(num_episode=self.num_episode_per_eval)
-                eval_reward_cumulative = self.eval_reward_cumulative_all / num_episode_run
                 if verbose:
-                    logging.info(f'eps: {self.eps_schduler.get_variable()}')
-                    logging.info(f'avg cumulative reward: {eval_reward_cumulative}')
+                    logging.info(f'Eps: {self.eps_schduler.get_variable()}')
+                    logging.info(f'Eval - avg cumulative reward: {eval_reward_cum}')
                     logging.info(f'number of positive examples in the buffer: {len(torch.where(self.reward_buffer == 1)[0])}')
-                self.eval_record[self.cnt_step] = (eval_reward_cumulative, )
                 if self.use_wandb:
                     wandb.log({
-                        "Cumulative Reward": eval_reward_cumulative,
+                        "Eval - avg cumulative Reward": eval_reward_cum,
                     }, step=self.cnt_step, commit=True)
 
-                # Saving model (and replay buffer)
+                # Saving modell and training details
                 if self.save_metric == 'cum_reward':
-                    best_path = self.save(metric=eval_reward_cumulative)
+                    best_path = self.save(metric=eval_reward_cum)
                 else:
                     raise NotImplementedError
-
-                # Generate sample affordance map - samples can be random - so not necessarily the best one
-                with torch.no_grad():
-                    self.save_sample_affordance(num=self.num_affordance)
-
-                # Save training details
                 torch.save(
                     {
                         'loss_record': self.loss_record,
                         'eval_record': self.eval_record,
                     }, os.path.join(self.out_folder, 'train_details'))
 
+                # Generate sample affordance map
+                for aff_ind in range(self.num_affordance):
+                    img = self.depth_buffer[self.rng.integers(0, self.depth_buffer.shape[0])]
+                    img_pred = self.learner(img[None, None].to(self.device)).squeeze(1).squeeze(0)
+                    save_affordance_map(img=img,
+                                        pred=img_pred,
+                                        path_prefix=os.path.join(self.img_folder, 
+                                                                f'{self.cnt_step}_{aff_ind}'))
+
                 # Switch to training
                 self.set_train_mode()
                 logging.info("======================================")
 
         ################### Done ###################
-        # best_path = self.save(force_save=True)    # TODO: force_save cfg
-        best_reward = np.max([q[0] for q in self.pq_top_k.queue]) # yikes...
-        logging.info('Saving best path {} with reward {}!'.format(best_path, best_reward))
-
-        # Policy
+        best_path = self.save(force_save=True)
         return best_path
+
 
     # === Replay and update ===
     def sample_batch(self, batch_size=None, positive_ratio=None):
@@ -228,34 +217,45 @@ class AgentTrain(AgentBase):
         assert num_new == 1
 
         # Extract action
-        _, _, _, theta, py, px = a
+        _, _, _, theta, py, px, py_rotated, px_rotated = a
         reward_tensor = torch.tensor([r]).float()
 
         # Convert depth to tensor
-        new_depth = s.detach().to('cpu')
+        depth = s.detach().to('cpu')
 
         # Rotate according to theta
-        new_depth = rotate_tensor(new_depth, theta=torch.tensor(theta)).squeeze(1)
+        depth_rotated = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
 
         # Construnct ground truth and mask (all zeros except for selected pixel)
-        new_ground_truth = torch.zeros_like(new_depth).to('cpu')
-        new_mask = torch.zeros_like(new_depth).to('cpu')
+        new_ground_truth = torch.zeros_like(depth_rotated).to('cpu')
+        new_mask = torch.zeros_like(depth_rotated).to('cpu')
         # for trial_ind, (success, (py, px)) in enumerate(zip(r, a)):
         #     new_ground_truth[trial_ind, py, py] = success
         #     new_mask[trial_ind, py, px] = 1
-        new_ground_truth[0, int(py), int(px)] = r
-        new_mask[0, int(py), int(px)] = 1
+        new_ground_truth[0, int(py_rotated), int(px_rotated)] = r
+        new_mask[0, int(py_rotated), int(px_rotated)] = 1
 
         # Determine recency for new data
         # recency = np.exp(-self.cnt_step * 0.1)  # rank-based    #?
 
+        # # Debug
+        # if r > 0:
+        #     import matplotlib.pyplot as plt
+        #     fig, axes = plt.subplots(1, 2)
+        #     axes[0].imshow(depth[0,0].cpu().numpy())
+        #     axes[0].scatter(px, py, c='r')
+        #     axes[1].imshow(depth_rotated[0].cpu().numpy())
+        #     axes[1].scatter(px_rotated, py_rotated, c='r')
+        #     axes[0].set_title('Original')
+        #     axes[1].set_title('Rotated')
+        #     plt.show()
+
         # Check if buffer filled up
         if self.depth_buffer.shape[0] < self.memory_capacity:
             self.depth_buffer = torch.cat(
-                (self.depth_buffer, new_depth))[:self.memory_capacity]
+                (self.depth_buffer, depth_rotated))[:self.memory_capacity]
             self.ground_truth_buffer = torch.cat(
-                (self.ground_truth_buffer,
-                 new_ground_truth))[:self.memory_capacity]
+                (self.ground_truth_buffer, new_ground_truth))[:self.memory_capacity]
             self.mask_buffer = torch.cat(
                 (self.mask_buffer, new_mask))[:self.memory_capacity]
             # self.recency_buffer = np.concatenate(
@@ -271,7 +271,7 @@ class AgentTrain(AgentBase):
                                         #    p=self.recency_buffer /
                                         #    np.sum(self.recency_buffer)
                                            )
-            self.depth_buffer[replace_ind] = new_depth
+            self.depth_buffer[replace_ind] = depth_rotated
             self.ground_truth_buffer[replace_ind] = new_ground_truth
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
@@ -318,27 +318,27 @@ class AgentTrain(AgentBase):
             logging.info('Built new policy optimizer!')
 
 
-    def save_sample_affordance(self, num):
-        for ind in range(num):
-            img_ind = self.rng.integers(0, self.depth_buffer.shape[0])
-            img = self.depth_buffer[img_ind]
-            img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
-            pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
-            img_path_prefix = os.path.join(self.img_folder, str(self.cnt_step))
+    # def save_sample_affordance(self, num, prefix_name):
+    #     for ind in range(num):
+    #         img_ind = self.rng.integers(0, self.depth_buffer.shape[0])
+    #         img = self.depth_buffer[img_ind]
+    #         img_input = img[np.newaxis, np.newaxis].float().to(self.device)  # 1x1xHxW
+    #         pred = self.learner(img_input).squeeze(1).squeeze(0)  # HxW
+    #         img_path_prefix = os.path.join(self.img_folder, prefix_name)
 
-            depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
-            depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)
-            img_rgb = Image.fromarray(depth_8bit, mode='RGB')
-            img_rgb.save(img_path_prefix + f'_{ind}_rgb.png')
+    #         depth_8bit = (img.detach().cpu().numpy() * 255).astype('uint8')
+    #         depth_8bit = np.stack((depth_8bit, ) * 3, axis=-1)
+    #         img_rgb = Image.fromarray(depth_8bit, mode='RGB')
+    #         img_rgb.save(img_path_prefix + f'_{ind}_rgb.png')
 
-            cmap = plt.get_cmap('jet')
-            pred_detach = (torch.sigmoid(pred)).detach().cpu().numpy()
-            pred_detach = (pred_detach - np.min(pred_detach)) / (
-                np.max(pred_detach) - np.min(pred_detach))  # normalize
-            pred_cmap = cmap(pred_detach)
-            pred_cmap = (np.delete(pred_cmap, 3, 2) * 255).astype('uint8')
-            img_heat = Image.fromarray(pred_cmap, mode='RGB')
-            img_heat.save(img_path_prefix + f'_{ind}_heatmap.png')
+    #         cmap = plt.get_cmap('jet')
+    #         pred_detach = (torch.sigmoid(pred)).detach().cpu().numpy()
+    #         pred_detach = (pred_detach - np.min(pred_detach)) / (
+    #             np.max(pred_detach) - np.min(pred_detach))  # normalize
+    #         pred_cmap = cmap(pred_detach)
+    #         pred_cmap = (np.delete(pred_cmap, 3, 2) * 255).astype('uint8')
+    #         img_heat = Image.fromarray(pred_cmap, mode='RGB')
+    #         img_heat.save(img_path_prefix + f'_{ind}_heatmap.png')
 
-            img_overlay = Image.blend(img_rgb, img_heat, alpha=.5)
-            img_overlay.save(img_path_prefix + f'_{ind}_overlay.png')
+    #         img_overlay = Image.blend(img_rgb, img_heat, alpha=.5)
+    #         img_overlay.save(img_path_prefix + f'_{ind}_overlay.png')

@@ -2,40 +2,15 @@ import logging
 import torch
 import numpy as np
 
+from agent.learner.grasp_script import GraspScript
 
-class GraspScript():
+
+class GraspScriptFlip(GraspScript):
     """
-    Randomly sample a pixel where the normalized depth value (from env) is above the norm_z_threshold. Randomly sample theta from discretized ones.
+    For flipped observation, flip px.
     """
     def __init__(self, cfg):
-        self.device = cfg.device
-        self.rng = np.random.default_rng(seed=cfg.seed)
-
-        # Parameters - grasping
-        self.num_theta = cfg.num_theta
-        self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
-        self.min_z = cfg.min_depth
-        self.max_z = cfg.max_depth
-        self.norm_z_threshold = cfg.norm_z_threshold
-
-        # Parameters - pixel to xy conversion - hf for half dimension of the image in the world
-        self.p2x = np.linspace(cfg.hf, -cfg.hf, num=cfg.img_w, endpoint=True)
-        self.p2y = np.linspace(-cfg.hf, cfg.hf, num=cfg.img_h, endpoint=True)
-
-        # Random perturbation
-        self.pixel_perturb = cfg.pixel_perturb
-
-
-    def parameters(self):
-        return 0
-
-
-    def build_network(self, cfg, build_optimizer=True, verbose=True):
-        pass
-
-
-    def build_optimizer(self):
-        pass
+        super().__init__(cfg)
 
 
     def forward(self, obs, extra=None, **kwargs):
@@ -53,12 +28,18 @@ class GraspScript():
             py_single = obs_single_ind[0][ind].astype('int')
             px_single = obs_single_ind[1][ind].astype('int')
 
-            # perturb
+            # Flip py if obs flipped
+            scaling = extra[n]
+            if scaling > 1:
+                px_single = W - px_single
+            
+            # Add randomness
             py_single += self.rng.integers(-self.pixel_perturb, self.pixel_perturb+1, size=1)
             px_single += self.rng.integers(-self.pixel_perturb, self.pixel_perturb+1, size=1)
             py_single = np.clip(py_single, 0, H-1)
             px_single = np.clip(px_single, 0, W-1)
 
+            # Append
             py = np.append(py, py_single)
             px = np.append(px, px_single)
 
@@ -86,27 +67,3 @@ class GraspScript():
                             py[:,None], 
                             px[:,None]))
         return output
-
-
-    def __call__(self, state, extra=None, verbose=False):
-        return self.forward(state, extra)
-
-
-    def update(self, batch):
-        pass
-
-
-    def update_hyper_param(self):
-        pass
-
-
-    def load_optimizer_state(self, ):
-        raise NotImplementedError
-
-
-    def save(self, step, logs_path, max_model=None):
-        pass
-
-
-    def remove(self, step, logs_path):
-        pass

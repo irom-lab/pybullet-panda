@@ -18,9 +18,8 @@ camera_param.aspect = 1
 camera_param.fov = 60    # vertical fov in degrees
 camera_param.use_rgb = True
 camera_param.use_depth = True
-camera_param.overhead_max_depth = camera_height
-camera_param.overhead_min_depth = 0.25
-camera_param.save_byte = False
+camera_param.max_depth = camera_height
+camera_param.min_depth = 0.25
 # img_half_dim_in_world = np.tan(np.deg2rad(camera_param.fov/2)) * camera_height
 # ignore projection for now
 

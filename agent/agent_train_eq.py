@@ -125,30 +125,30 @@ class AgentTrainEq(AgentTrain):
             else:
                 logging.info("======================================")
                 logging.info(f'Evaluating at step {self.cnt_step}...')
-                num_episode_run, _ = self.run_steps(num_episode=self.num_episode_per_eval)
-                eval_reward_cumulative = self.eval_reward_cumulative_all / num_episode_run
+                num_epi_run, _ = self.run_steps(num_epi=self.num_epi_per_eval)
+                eval_reward_cum_avg = self.eval_reward_cum_all / num_epi_run
                 if verbose:
                     logging.info(f'eps: {self.eps_schduler.get_variable()}')
-                    logging.info(f'avg cumulative reward: {eval_reward_cumulative}')
+                    logging.info(f'Avg cumulative reward: {eval_reward_cum_avg}')
                     logging.info(f'number of positive examples in the buffer: {len(torch.where(self.reward_buffer == 1)[0])}')
-                self.eval_record[self.cnt_step] = (eval_reward_cumulative, )
+                self.eval_record[self.cnt_step] = (eval_reward_cum_avg, )
                 if self.use_wandb:
                     wandb.log({
-                        "Cumulative Reward": eval_reward_cumulative,
+                        "Eval - avg cumulative Reward": eval_reward_cum_avg,
                     }, step=self.cnt_step, commit=True)
 
                 # Check if target reward is reached
-                flag_train_action_decoder = eval_reward_cumulative < self.target_reward
+                flag_train_action_decoder = eval_reward_cum_avg < self.target_reward
                 logging.info(f'Training action decoder next? {flag_train_action_decoder}')
 
                 # Saving model (and replay buffer)
                 if self.save_metric == 'cum_reward':
-                    best_path = self.save(metric=eval_reward_cumulative)
+                    best_path = self.save(metric=eval_reward_cum_avg)
                 else:
                     raise NotImplementedError
 
                 #!
-                self.eps_schduler = StepLRFixed(initValue=1-eval_reward_cumulative,
+                self.eps_schduler = StepLRFixed(initValue=1-eval_reward_cum_avg,
                                                 period=eps_period,
                                                 endValue=self.cfg_eps.end,
                                                 stepSize=self.cfg_eps.step)

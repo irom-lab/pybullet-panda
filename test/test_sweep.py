@@ -1,5 +1,6 @@
 # Minimal working example
 import numpy as np
+from omegaconf import OmegaConf
 from panda_gym.sweep_env import SweepEnv
 from util.geom import euler2quat
 import pybullet as p
@@ -9,16 +10,16 @@ import pickle
 
 # Configure camera
 camera_height = 0.5
-camera_param = {}
-camera_param['pos'] = np.array([0.9, 0, camera_height])
-# camera_param['euler'] = [0, -np.pi, 0] # extrinsic - x up, z forward
-camera_param['euler'] = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
-camera_param['img_w'] = 128
-camera_param['img_h'] = 128
-camera_param['aspect'] = 1
-camera_param['fov'] = 70    # vertical fov in degrees
-camera_param['max_depth'] = camera_height
-camera_param['wrist_offset'] = [0.05, 0.0, 0.02]
+camera_param = OmegaConf.create()
+camera_param.pos = [0.9, 0, camera_height]
+# camera_param.euler = [0, -np.pi, 0] # extrinsic - x up, z forward
+camera_param.euler = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+camera_param.img_w = 128
+camera_param.img_h = 128
+camera_param.aspect = 1
+camera_param.fov = 70    # vertical fov in degrees
+camera_param.max_depth = camera_height
+camera_param.wrist_offset = [0.05, 0.0, 0.02]
 
 # Dataset
 dataset = '/home/allen/meta-lang/data/tool_v5_sweep_train.pkl'

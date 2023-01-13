@@ -28,6 +28,9 @@ class GraspBandit():
         # Grdient clipping
         self.gradient_clip = cfg.gradient_clip
 
+        # Backpropagating only though the label pixel or not
+        self.flag_backpropagate_label_pixel_only = cfg.backpropagate_label_pixel_only
+
         # Parameters - grasping
         self.num_theta = cfg.num_theta
         self.thetas = torch.from_numpy(np.linspace(0, 1, num=cfg.num_theta, endpoint=False) * np.pi)
@@ -80,7 +83,7 @@ class GraspBandit():
         self.criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')   # normalizes FCN output
 
 
-    def forward(self, obs, append=None, flag_random=False):
+    def forward(self, obs, extra=None, flag_random=False):
         # Assume depth only
         assert obs.shape[1] == 1
         N,_,H,W = obs.shape
@@ -97,7 +100,7 @@ class GraspBandit():
 
         # Random sampling pixel or forward pass
         if self.eval or not flag_random:
-            fcn_pred = self(state_rot_all, append=append)
+            fcn_pred = self(state_rot_all, extra=extra)
             # Uncombine N and C
             fcn_pred = fcn_pred.view(N, self.num_theta, H, W).cpu().numpy()
     
@@ -105,24 +108,24 @@ class GraspBandit():
             max_idx = fcn_pred.reshape(fcn_pred.shape[0],-1).argmax(1)
 
             # Get unravel indices corresponding to original shape of A
-            (pt, py, px) = np.unravel_index(max_idx, fcn_pred[0,:,:,:].shape)
+            (pt_all, py_all, px_all) = np.unravel_index(max_idx, fcn_pred[0,:,:,:].shape)
             # (pt, py, px) = np.unravel_index(np.argmax(fcn_pred, axis=1),
             #                                 fcn_pred.shape)  #? batch
         else:
-            pt = self.rng.integers(0, self.num_theta, size=N)   # exlusive
-            py = self.rng.integers(0, H, size=N)
-            px = self.rng.integers(0, W, size=N)
+            pt_all = self.rng.integers(0, self.num_theta, size=N)   # exlusive
+            py_all = self.rng.integers(0, H, size=N)
+            px_all = self.rng.integers(0, W, size=N)
 
         # Convert pixel to x/y
-        xy_all = np.concatenate((self.p2x[px][None], self.p2y[py][None])).T
-        theta_all = self.thetas[pt]
+        xy_all = np.concatenate((self.p2x[px_all][None], self.p2y[py_all][None])).T
+        theta_all = self.thetas[pt_all]
 
         # Find the target z height
         state_rot_all = state_rot_all.view(N, self.num_theta, H, W)
-        norm_z = state_rot_all[torch.arange(N), pt, py, px].detach().cpu().numpy()
+        norm_z = state_rot_all[torch.arange(N), pt_all, py_all, px_all].detach().cpu().numpy()
         z_all = norm_z*(self.max_z - self.min_z)    # unnormalize (min_z corresponds to max height and max_z corresponds to min height)
 
-        # Rotate into local frame
+        # Rotate xy
         # xy_all_rotated = np.empty((0,2))
         # for xy, theta in zip(xy_all, theta_all):
         #     xy_orig = np.array([[np.cos(theta), -np.sin(theta)],
@@ -139,19 +142,57 @@ class GraspBandit():
         #                            [np.sin(theta), np.cos(theta)]])[None], 
         #                 (N, 1, 1))
         # xy_all = np.einsum('BNi,Bi->BN', xy_rot, xy_all)
+        
+        # Rotate pixels - since rotating around the center, first find the offset from the center with right as x and down as y
+        py_offset_all = py_all - (H-1)/2
+        px_offset_all = px_all - (W-1)/2
+        pxy_offset_all = np.hstack((px_offset_all[:,None], py_offset_all[:,None]))
+        pxy_offset_rotated_all = np.matmul(rot_all, pxy_offset_all[:,:,None])[:,:,0]
+        py_rotated_all = pxy_offset_rotated_all[:,1] + (H-1)/2
+        px_rotated_all = pxy_offset_rotated_all[:,0] + (W-1)/2
+        py_rotated_all = np.round(py_rotated_all)
+        px_rotated_all = np.round(px_rotated_all)
+        
+        # This is not ideal, but we have to clip since after rotation, some grasps can be out of bound if the original grasp is close to the four corners. Ideally we should not sample grasps there. For now, we can assume the object is not at the corners
+        py_rotated_all = np.clip(py_rotated_all, 0, H-1)
+        px_rotated_all = np.clip(px_rotated_all, 0, W-1)
+
+        # # Debug
+        # print(np.hstack((py_all[:,None], px_all[:,None])))
+        # print(pxy_offset_all)
+        # print(pxy_offset_rotated_all)
+        # print(np.hstack((py_rotated_all[:,None], px_rotated_all[:,None])))
+        # import matplotlib.pyplot as plt
+        # for ind in range(7, N):
+        #     theta = theta_all[ind]
+        #     py = py_all[ind]
+        #     px = px_all[ind]
+        #     depth = obs[ind]
+        #     depth_rotated = rotate_tensor(obs, theta=theta)[ind]
+        #     py_rotated = int(py_rotated_all[ind])
+        #     px_rotated = int(px_rotated_all[ind])
+        #     print(theta, py, px, py_rotated, px_rotated)
+        #     fig, axes = plt.subplots(1, 2)
+        #     axes[0].imshow(depth[0].cpu().numpy())
+        #     axes[0].scatter(px, py, c='r')  # axes flipped
+        #     axes[1].imshow(depth_rotated[0].cpu().numpy())
+        #     axes[1].scatter(px_rotated, py_rotated, c='r')
+        #     axes[0].set_title('Original')
+        #     axes[1].set_title('Rotated')
+        #     plt.show()
         output = np.hstack((xy_all_rotated, 
                             z_all[:,None], 
                             theta_all[:,None],
-                            py[:,None], 
-                            px[:,None]))
+                            py_all[:,None],
+                            px_all[:,None],
+                            py_rotated_all[:,None],
+                            px_rotated_all[:,None],
+                            ))
         return output
 
 
-    def __call__(self, state, append=None, verbose=False):
-        fcn_pred = self.fcn(state, append)
-        # if verbose:
-            # logging.info('FCN with state {}'.format(state))
-        return fcn_pred
+    def __call__(self, state, extra=None, verbose=False):
+        return self.fcn(state, extra)
 
 
     def update(self, batch):
@@ -167,8 +208,9 @@ class GraspBandit():
         self.optimizer.zero_grad()
 
         # mask gradient for non-selected pixels
-        # pred_train_batch.retain_grad()
-        # pred_train_batch.register_hook(lambda grad: grad * mask_train_batch)
+        if self.flag_backpropagate_label_pixel_only:
+            pred_train_batch.retain_grad()
+            pred_train_batch.register_hook(lambda grad: grad * mask_train_batch)
 
         # Update params using clipped gradients
         train_loss.backward()
@@ -197,4 +239,3 @@ class GraspBandit():
         if os.path.exists(path_c):
             os.remove(path_c)
             logging.info("Remove {}".format(path_c))
-

@@ -8,7 +8,9 @@ import torch
 
 class AgentBase():
     def __init__(self, cfg, venv):
-
+        """
+        Base agent for data collection, policy training, etc.
+        """
         # Params
         self.venv = venv
         self.cfg = cfg
@@ -74,10 +76,9 @@ class AgentBase():
 
 
     def set_eval_mode(self):
-        self.eval_reward_cumulative = [0 for _ in range(self.n_envs)
-                                       ]  # for calculating cumulative reward
+        self.eval_reward_cum = [0 for _ in range(self.n_envs)]
         self.eval_reward_best = [0 for _ in range(self.n_envs)]
-        self.eval_reward_cumulative_all = 0
+        self.eval_reward_cum_all = 0
         self.eval_reward_best_all = 0
         self.env_step_cnt = [0 for _ in range(self.n_envs)]
 
@@ -85,23 +86,28 @@ class AgentBase():
         self.max_env_step = self.max_eval_steps
         self.learner.eval = True
 
+        # Clear GPU cache
+        torch.cuda.empty_cache()
+
 
     def run_steps(self, num_step=None, 
-                        num_episode=None, 
+                        num_epi=None,
+                        force_deterministic=False, 
                         force_random=False, 
                         run_in_seq=False):
+        assert not (force_deterministic and force_random)
         if num_step is not None:
             cnt_target = num_step
-        elif num_episode is not None:
-            cnt_target = num_episode
+        elif num_epi is not None:
+            cnt_target = num_epi
         else:
             raise "No steps or episodes provided for run_steps()!"
 
         if run_in_seq:
-            task_ids_yet_run = list(np.arange(num_episode))
+            task_ids_yet_run = list(np.arange(num_epi))
 
         # Run
-        info_episode = []
+        info_epi = []
         cnt = 0
         while cnt < cnt_target:
 
@@ -114,39 +120,38 @@ class AgentBase():
                 s, task_ids = self.reset_env_all()
 
             # Interact
-            # cur_tasks = [self.task_all[id] for id in task_ids]
-            # if self.use_append:
-            #     append_all = self.utility.get_append(cur_tasks)
-            # else:
-            #     append_all = None
+            cur_tasks = [self.task_all[id] for id in task_ids]
+            if self.utility.use_extra:
+                extra_all = self.utility.get_extra(cur_tasks)
+            else:
+                extra_all = None
 
-            # Select action
-            eps = self.eps_schduler.get_variable()
-            if force_random:
+            # Select action # TODO: Boltzmann distribution
+            if force_deterministic:
+                flag_random = 0
+            elif force_random:
                 flag_random = 1
             else:
+                eps = self.eps_schduler.get_variable()
                 flag_random = self.rng.choice(2, p=[1-eps, eps])
             with torch.no_grad():
-                a_all = self.learner.forward(s,
-                                            #  append=append_all,
-                                            flag_random=flag_random,
-                                            )
+                a_all = self.learner.forward(s, extra=extra_all, flag_random=flag_random)
 
             # Apply action - update heading
             s_all, r_all, done_all, info_all = self.step(a_all)
 
-            # # Get new append
-            # append_nxt_all = None
+            # Get new extra # TODO: sequential
+            extra_nxt_all = None
 
             # Check all envs
             for env_ind, (s_, r, done, info) in enumerate(
                     zip(s_all, r_all, done_all, info_all)):
 
-                # # Save append
-                # if append_all is not None:
-                #     info['append'] = append_all[env_ind].unsqueeze(0)
-                # if append_nxt_all is not None:
-                #     info['append_nxt'] = append_nxt_all[env_ind].unsqueeze(0)
+                # Save extra
+                if extra_all is not None:
+                    info['extra'] = extra_all[env_ind]
+                if extra_nxt_all is not None:
+                    info['extra_nxt'] = extra_nxt_all[env_ind]
 
                 # Store the transition in memory if training mode - do not save next state
                 action = a_all[env_ind]
@@ -160,32 +165,32 @@ class AgentBase():
 
                 # Check reward
                 if self.eval_mode:
-                    self.eval_reward_cumulative[env_ind] += r.item()
+                    self.eval_reward_cum[env_ind] += r.item()
                     self.eval_reward_best[env_ind] = max(self.eval_reward_best[env_ind], r.item())
                     
                     # Check done for particular env
                     if done or self.env_step_cnt[env_ind] > self.max_env_step:
-                        info['reward'] = self.eval_reward_cumulative[env_ind]
-                        self.eval_reward_cumulative_all += self.eval_reward_cumulative[env_ind]
+                        info['reward'] = self.eval_reward_cum[env_ind]
+                        self.eval_reward_cum_all += self.eval_reward_cum[env_ind]
                         self.eval_reward_best_all += self.eval_reward_best[env_ind]
-                        self.eval_reward_cumulative[env_ind] = 0
+                        self.eval_reward_cum[env_ind] = 0
                         self.eval_reward_best[env_ind] = 0
 
                         # Record info of the episode
-                        info_episode += [info]
+                        info_epi += [info]
 
                         # Count for eval mode
                         cnt += 1
-                        
+
                         # Quit
                         if cnt == cnt_target:
-                            return cnt, info_episode
+                            return cnt, info_epi
                     else:
                         if done or self.env_step_cnt[env_ind] > self.max_env_step:
                             info['reward'] = r.item()   # assume single step!
 
                             # Record info of the episode
-                            info_episode += [info]
+                            info_epi += [info]
 
             # Count for train mode
             if not self.eval_mode:
@@ -195,7 +200,7 @@ class AgentBase():
                 for _ in range(self.n_envs):
                     self.learner.update_hyper_param()
                     self.eps_schduler.step()
-        return cnt, info_episode
+        return cnt, info_epi
 
 
     # === Venv ===

@@ -1,6 +1,7 @@
 import numpy as np
 import os
 from os.path import dirname
+from omegaconf import OmegaConf
 
 from .tool import Tool
 from util.numeric import unnormalize_tanh
@@ -298,15 +299,15 @@ class HammerEnv(PandaEnv):
         # obs_wrist = self.get_wrist_obs(camera_param)  # uint8
         obs_overhead = self.get_overhead_obs(camera_param)  # uint8
 
-        camera_param_aux = {}
-        camera_param_aux['pos'] = [0.10, 0.40, 0.20]
-        camera_param_aux['euler'] = [0, -1.8, 2.5]
-        camera_param_aux['img_h'] = 128
-        camera_param_aux['img_w'] = 128
-        camera_param_aux['aspect'] = 1
-        camera_param_aux['fov'] = 70
-        camera_param_aux['overhead_min_depth'] = 0.3
-        camera_param_aux['overhead_max_depth'] = 0.8
+        camera_param_aux = OmegaConf.create()
+        camera_param_aux.pos = [0.10, 0.40, 0.20]
+        camera_param_aux.euler = [0, -1.8, 2.5]
+        camera_param_aux.img_h = 128
+        camera_param_aux.img_w = 128
+        camera_param_aux.aspect = 1
+        camera_param_aux.fov = 70
+        camera_param_aux.min_depth = 0.3
+        camera_param_aux.max_depth = 0.8
 
         obs_aux = self.get_overhead_obs(camera_param_aux)  # uint8
         return np.vstack((obs_overhead, obs_aux))

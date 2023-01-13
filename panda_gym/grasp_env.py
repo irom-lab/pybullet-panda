@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from omegaconf import OmegaConf
 
 from panda_gym.panda_env import PandaEnv
 from util.geom import quatMult, euler2quat
@@ -16,6 +17,7 @@ class GraspEnv(PandaEnv):
         sigma=0.03,
         x_offset=0.5,
         grasp_z_offset=-0.03,
+        lift_threshold=0.02,
     ):
         """
         """
@@ -28,6 +30,7 @@ class GraspEnv(PandaEnv):
         self._sigma = sigma
         self._x_offset = x_offset
         self._grasp_z_offset = grasp_z_offset  # grasp happens at the pixel depth plus this offset
+        self._lift_threshold = lift_threshold
 
         # Object id
         self._obj_id_list = []
@@ -39,11 +42,11 @@ class GraspEnv(PandaEnv):
 
         # Default task
         if task is None:
-            self.task = {}
-            self.task['obj_path'] = 'data/sample/mug/3.urdf'
-            self.task['obj_pos'] = [0.45, 0.05, 0.15]
-            self.task['obj_quat'] = [0, 0, 0, 1]
-            self.task['global_scaling'] = 1.0
+            self.task = OmegaConf.create()
+            self.task.obj_path = 'data/sample/mug/3.urdf'
+            self.task.obj_pos = [0.45, 0.05, 0.15]
+            self.task.obj_quat = [0, 0, 0, 1]
+            self.task.global_scaling = 1.0
 
 
     @property
@@ -89,10 +92,13 @@ class GraspEnv(PandaEnv):
         self._obj_initial_pos_list = {}
 
         # Load urdf
-        obj_id = self._p.loadURDF(task['obj_path'],
-                                  basePosition=task['obj_pos'],
-                                  baseOrientation=task['obj_quat'],
-                                  globalScaling=task['global_scaling'])
+        task.obj_pos[0] = 0.6
+        task.obj_pos[1] = 0.05
+        task.obj_quat[2] = 0.5
+        obj_id = self._p.loadURDF(task.obj_path,
+                                  basePosition=task.obj_pos,
+                                  baseOrientation=task.obj_quat,
+                                  globalScaling=task.global_scaling)
         self._obj_id_list += [obj_id]
 
         # Let objects settle (actually do not need since we know the height of object and can make sure it spawns very close to table level)
@@ -143,7 +149,9 @@ class GraspEnv(PandaEnv):
         return np.array([]), reward, True, {'global_scaling': self.task['global_scaling']}   # s, reward, done, info
 
 
-    def clear_obj(self, thres=0.03):
+    def clear_obj(self, thres=None):
+        if thres is None:
+            thres = self._lift_threshold
         height = []
         obj_to_be_removed = []
         for obj_id in self._obj_id_list:
@@ -151,7 +159,6 @@ class GraspEnv(PandaEnv):
             height += [pos[2]]
             if pos[2] - self._obj_initial_pos_list[obj_id][2] > thres:
                 obj_to_be_removed += [obj_id]
-
         for obj_id in obj_to_be_removed:
             self._p.removeBody(obj_id)
             self._obj_id_list.remove(obj_id)
