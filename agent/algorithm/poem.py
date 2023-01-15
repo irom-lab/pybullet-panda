@@ -124,7 +124,7 @@ def contrastive_loss(similarity_matrix,
 
     loss1 = torch.mean(neg_logits1 - pos_logits1)
     loss2 = torch.mean(neg_logits2 - pos_logits2)
-    return loss1 + loss2
+    return loss1 + loss2, col_indices, row_indices
 
 
 def representation_alignment_loss(state_encoder,

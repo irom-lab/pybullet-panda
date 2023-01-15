@@ -45,6 +45,7 @@ class AgentImitate(AgentBase):
         self.num_epi_per_eval = cfg.num_eval_episode
         self.num_affordance = cfg.num_affordance
         self.expert_data_path = cfg.expert_data_path
+        self.mask_grad_leakage = cfg.learner.mask_grad_leakage
 
 
     @property
@@ -100,8 +101,8 @@ class AgentImitate(AgentBase):
             logging.info(f'Avg cumulative reward: {eval_reward_cum_avg}')
             if self.use_wandb:
                 wandb.log({
-                    "Imitation - CE loss": loss,
-                    "Eval - avg cumulative Reward": eval_reward_cum_avg,
+                    "AgentImitate - CE loss": loss,
+                    "AgentImitate - avg eval cumulative Reward": eval_reward_cum_avg,
                 }, step=self.cnt_opt, commit=True)
 
             # Saving model and training detailss
@@ -117,8 +118,8 @@ class AgentImitate(AgentBase):
 
             # Generate sample affordance map
             for aff_ind in range(self.num_affordance):
-                img = self.depth_buffer[self.rng.integers(0, self.depth_buffer.shape[0])].float()/255.0
-                img_pred = self.learner(img[None, None].to(self.device)).squeeze(1).squeeze(0)
+                img = self.obs_buffer[self.rng.integers(0, len(self.obs_buffer))].float()/255.0
+                img_pred = self.learner(img[None].to(self.device)).squeeze(1).squeeze(0)
                 save_affordance_map(img=img,
                                     pred=img_pred,
                                     path_prefix=os.path.join(self.img_folder, 
@@ -138,17 +139,17 @@ class AgentImitate(AgentBase):
         # Sample indices
         if batch_size is None:
             batch_size = self.batch_size
-        buffer_size = self.depth_buffer.shape[0]
+        buffer_size = self.obs_buffer.shape[0]
         sample_inds = random.sample(range(buffer_size), k=batch_size)
 
         # Get data        
-        depth_batch = self.depth_buffer[sample_inds].clone().detach().to(
-            self.device, non_blocking=True).unsqueeze(1)  # Nx1xHxW
+        obs_batch = self.obs_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # NxCxHxW
         ground_truth_batch = self.ground_truth_buffer[sample_inds].clone(
         ).detach().to(self.device, non_blocking=True)  # NxHxW
         mask_batch = self.mask_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True)  # NxHxW
-        return (depth_batch, ground_truth_batch, mask_batch)
+        return (obs_batch, ground_truth_batch, mask_batch)
 
 
     #== Reset policy/optimizer/memory
@@ -166,12 +167,13 @@ class AgentImitate(AgentBase):
     def load_data(self, path):
         """Imitation data. Obs in uint8. Assume all reward=1"""
         data = load_obj(path)
-        self.depth_buffer = data['depth'].to('cpu')
+        self.obs_buffer = data['obs'].to('cpu')
+        N, C, H, W = self.obs_buffer.shape
         action_all = data['action']
         
         # Construnct ground truth and mask (all zeros except for selected pixel)
-        self.ground_truth_buffer = torch.zeros_like(self.depth_buffer, dtype=torch.uint8).to('cpu')
-        self.mask_buffer = torch.zeros_like(self.depth_buffer, dtype=torch.uint8).to('cpu')
+        self.ground_truth_buffer = torch.zeros((N, H, W), dtype=torch.uint8).to('cpu')
+        self.mask_buffer = torch.ones((N, H, W), dtype=torch.float32).to('cpu')*self.mask_grad_leakage
         for trial_ind, (py, px) in enumerate(action_all):
             py = int(py)
             px = int(px)
@@ -179,13 +181,13 @@ class AgentImitate(AgentBase):
             self.mask_buffer[trial_ind, py, px] = 1
 
             # if trial_ind < 20:
-            #     depth = self.depth_buffer[trial_ind].clone().numpy()
+            #     depth = self.obs_buffer[trial_ind, 0].clone().numpy()
             #     plt.imshow(depth, origin="upper")
             #     plt.scatter(px, py) # use imshow origin
             #     plt.savefig(f'{trial_ind}_{py}_{px}.png')
             #     plt.close()
 
-        self.reward_buffer = torch.ones((len(self.depth_buffer))).float().to('cpu')
+        self.reward_buffer = torch.ones((len(self.obs_buffer))).float().to('cpu')
         logging.info(f'Loaded imitation data from {path}!')
 
 

@@ -98,8 +98,7 @@ class PandaEnv():
         self.rng = np.random.default_rng(seed=self.seed_val)
         torch.manual_seed(self.seed_val)
         torch.cuda.manual_seed(self.seed_val)
-        torch.cuda.manual_seed_all(
-            self.seed_val)  # if you are using multi-GPU.
+        torch.cuda.manual_seed_all(self.seed_val)  # if you are using multi-GPU.
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
 

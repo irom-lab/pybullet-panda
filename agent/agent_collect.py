@@ -53,9 +53,9 @@ class AgentCollect(AgentTrain):
 
         # Save buffer
         positive_ind = torch.where(self.reward_buffer == 1)[0]
-        positive_depth = self.depth_buffer[positive_ind]
+        positive_obs = self.obs_buffer[positive_ind]
         positive_action = self.action_buffer[positive_ind]
-        data = {'depth': positive_depth, 'action': positive_action}
+        data = {'obs': positive_obs, 'action': positive_action}
         save_obj(data, os.path.join(self.out_folder, 'data.pkl'))
         logging.info(f'Saved {len(positive_ind)} positive grasps!')
         return None
@@ -65,20 +65,20 @@ class AgentCollect(AgentTrain):
         """Save images as uint8"""
 
         # Indices to be replaced in the buffer for current step
-        num_new, _, H, W = s.shape
-        assert num_new == 1
+        N, C, H, W = s.shape
+        assert N == 1
 
         # Extract action - note that the rotated pixels are the ones actually executed
         x, y, z, theta, py, px, py_rot, px_rot = a
         action_tensor = torch.tensor([[py_rot, px_rot]]).float()
         reward_tensor = torch.tensor([r]).float()
 
-        # Convert depth to tensor, uint8 to float32
-        depth = s.detach().to('cpu')
-        depth = depth.float()/255.0
+        # Convert obs to tensor, uint8 to float32
+        obs = s.detach().to('cpu')
+        obs = obs.float()/255.0
 
         # Rotate to theta
-        depth_rot = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
+        obs_rot = rotate_tensor(obs, theta=torch.tensor(theta))
 
         # # Debug
         # print('Executed pos (should match dot in the original view): ', (x,y,z))
@@ -93,8 +93,8 @@ class AgentCollect(AgentTrain):
         # plt.show()
 
         # append, assume not filled up
-        self.depth_buffer = torch.cat(
-            (self.depth_buffer, (depth_rot*255).byte()))[:self.memory_capacity]
+        self.obs_buffer = torch.cat(
+            (self.obs_buffer, (obs_rot*255).byte()))[:self.memory_capacity]
         self.action_buffer = torch.cat(
             (self.action_buffer, action_tensor))[:self.memory_capacity]
         self.reward_buffer = torch.cat(

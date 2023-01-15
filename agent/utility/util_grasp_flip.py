@@ -16,7 +16,8 @@ class UtilGraspFlip():
 
 
     def get_extra(self, tasks):
-        scaling_all = []
+        table_rgba_all = []
         for task in tasks:
-            scaling_all += [task['global_scaling']]
-        return np.array(scaling_all)
+            # scaling_all += [task['global_scaling']]
+            table_rgba_all += [task['table_rgba']]
+        return np.array(table_rgba_all)

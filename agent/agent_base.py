@@ -4,6 +4,7 @@ import logging
 import numpy as np
 import pickle5 as pickle
 import torch
+import random
 
 
 class AgentBase():
@@ -16,6 +17,10 @@ class AgentBase():
         self.cfg = cfg
         self.seed = cfg.seed
         self.rng = np.random.default_rng(seed=cfg.seed)
+        random.seed(cfg.seed)
+        torch.manual_seed(cfg.seed)
+        torch.cuda.manual_seed(cfg.seed)
+        torch.cuda.manual_seed_all(cfg.seed)  # if you are using multi-GPU.
         self.device = cfg.device
         self.image_device = cfg.image_device
         self.eval = cfg.eval

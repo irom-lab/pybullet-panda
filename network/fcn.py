@@ -75,7 +75,8 @@ class FCN(nn.Module):
         )
 
         self.up_layer_2 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 2 + inner_channels // 2,
+            nn.Conv2d(in_channels=inner_channels // 2,
+                    #   + inner_channels // 2,
                       out_channels=inner_channels // 4,
                       kernel_size=3,
                       stride=1,
@@ -88,7 +89,8 @@ class FCN(nn.Module):
         )
 
         self.up_layer_3 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 4 + inner_channels // 4,
+            nn.Conv2d(in_channels=inner_channels // 4,
+                    #   + inner_channels // 4,
                       out_channels=inner_channels // 8,
                       kernel_size=3,
                       stride=1,
@@ -101,7 +103,8 @@ class FCN(nn.Module):
         )
 
         self.output_layer = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 8 + in_channels,
+            nn.Conv2d(in_channels=inner_channels // 8, 
+                    #   + in_channels,
                       out_channels=out_channels,
                       kernel_size=1,
                       stride=1,
@@ -128,9 +131,11 @@ class FCN(nn.Module):
         down2 = self.down_layer_2(down1)
         mid = self.down_layer_3(down2)
         up1 = self.up_layer_1(mid)
-        up1 = torch.cat((up1, down2), dim=1)
+        # up1 = torch.cat((up1, down2), dim=1)
         up2 = self.up_layer_2(up1)
-        up2 = torch.cat((up2, down1), dim=1)
+        # up2 = torch.cat((up2, down1), dim=1)
         up3 = self.up_layer_3(up2)
-        up3 = torch.cat((up3, x), dim=1)
-        return self.output_layer(up3)
+        # up3 = torch.cat((up3, x), dim=1)
+        out = self.output_layer(up3)
+        # print(out[0,0,30:33,27:30], torch.max(out), torch.min(out))
+        return out

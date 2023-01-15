@@ -7,6 +7,7 @@ import logging
 
 import numpy as np
 from collections import OrderedDict
+from util.network import tie_weights
 
 
 class SpatialSoftmax(torch.nn.Module):
@@ -165,3 +166,16 @@ class ConvNet(nn.Module):
         for module in self.moduleList:
             x = module(x)
         return x
+
+
+    def copy_weights_from(self, source):
+        """
+        Tie convolutional layers.
+        """
+        for source_module, module in zip(source.moduleList,
+                                         self.moduleList):
+            for source_layer, layer in zip(
+                    source_module.children(), module.children(
+                    )):  # children() works for both Sequential and nn.Module
+                if isinstance(layer, nn.Conv2d):
+                    tie_weights(src=source_layer, trg=layer)

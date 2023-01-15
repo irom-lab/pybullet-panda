@@ -48,6 +48,7 @@ class AgentTrain(AgentBase):
         self.num_epi_per_eval = cfg.num_eval_episode
         self.cfg_eps = cfg.eps
         self.num_affordance = cfg.num_affordance
+        self.num_obs_channel = cfg.num_obs_channel
 
 
     def learn(self, tasks=None, 
@@ -116,7 +117,7 @@ class AgentTrain(AgentBase):
                 if self.use_wandb:
                     wandb.log(
                         {
-                            "Train - loss": loss,
+                            "AgentTrain - loss": loss,
                         }, step=self.cnt_step, commit=False)
 
                 # Count number of optimization
@@ -141,7 +142,7 @@ class AgentTrain(AgentBase):
                     logging.info(f'number of positive examples in the buffer: {len(torch.where(self.reward_buffer == 1)[0])}')
                 if self.use_wandb:
                     wandb.log({
-                        "Eval - avg cumulative Reward": eval_reward_cum,
+                        "AgentTrain - avg eval cumulative Reward": eval_reward_cum,
                     }, step=self.cnt_step, commit=True)
 
                 # Saving modell and training details
@@ -157,8 +158,8 @@ class AgentTrain(AgentBase):
 
                 # Generate sample affordance map
                 for aff_ind in range(self.num_affordance):
-                    img = self.depth_buffer[self.rng.integers(0, self.depth_buffer.shape[0])].float()/255.0
-                    img_pred = self.learner(img[None, None].to(self.device)).squeeze(1).squeeze(0)
+                    img = self.obs_buffer[self.rng.integers(0, len(self.obs_buffer))].float()/255.0
+                    img_pred = self.learner(img[None].to(self.device)).squeeze(1).squeeze(0)
                     save_affordance_map(img=img,
                                         pred=img_pred,
                                         path_prefix=os.path.join(self.img_folder, 
@@ -180,7 +181,7 @@ class AgentTrain(AgentBase):
             batch_size = self.batch_size
 
         # Train by sampling from buffer
-        buffer_size = self.depth_buffer.shape[0]
+        buffer_size = self.obs_buffer.shape[0]
         if positive_ratio is None:
             sample_inds = random.sample(range(buffer_size), k=batch_size)
         else:
@@ -195,13 +196,13 @@ class AgentTrain(AgentBase):
             sample_inds = torch.cat((positive_sample_inds, negative_sample_inds))  
             sample_inds = sample_inds[torch.randperm(len(sample_inds))]
         
-        depth_train_batch = self.depth_buffer[sample_inds].clone().detach().to(
-            self.device, non_blocking=True).unsqueeze(1)  # Nx1xHxW
+        obs_batch = self.obs_buffer[sample_inds].clone().detach().to(
+            self.device, non_blocking=True)  # NxCxHxW
         ground_truth_batch = self.ground_truth_buffer[sample_inds].clone(
         ).detach().to(self.device, non_blocking=True)  # NxHxW
-        mask_train_batch = self.mask_buffer[sample_inds].clone().detach().to(
+        mask_batch = self.mask_buffer[sample_inds].clone().detach().to(
             self.device, non_blocking=True)  # NxHxW
-        return (depth_train_batch, ground_truth_batch, mask_train_batch)
+        return (obs_batch, ground_truth_batch, mask_batch)
 
 
     def unpack_batch(self, batch):
@@ -212,19 +213,19 @@ class AgentTrain(AgentBase):
         """Save images as uint8"""
 
         # Indices to be replaced in the buffer for current step
-        num_new, _, H, W = s.shape
+        num_new, C, H, W = s.shape
         assert num_new == 1
 
         # Extract action
         _, _, _, theta, py, px, py_rot, px_rot = a
         reward_tensor = torch.tensor([r]).float()
 
-        # Convert depth to tensor, uint8 to float32
-        depth = s.detach().to('cpu')
-        depth = depth.float()/255.0
+        # Convert obs to tensor, uint8 to float32
+        obs = s.detach().to('cpu')
+        obs = obs.float()/255.0
 
         # Rotate to theta
-        depth_rot = rotate_tensor(depth, theta=torch.tensor(theta)).squeeze(1)
+        obs_rot = rotate_tensor(obs, theta=torch.tensor(theta))
 
         # Mark ground truth and mask with rotated x and y since depth is rotated (all zeros except for selected pixel)
         new_ground_truth = torch.zeros((1, H, W), dtype=torch.uint8).to('cpu')
@@ -233,24 +234,28 @@ class AgentTrain(AgentBase):
         new_mask[0, int(py_rot), int(px_rot)] = 1
 
         # Determine recency for new data
-        # recency = np.exp(-self.cnt_step * 0.1)  # rank-based    #?
+        # recency = np.exp(-self.cnt_step * 0.1)  # rank-based
 
-        # Debug
+        # # Debug
         # if r > 0:
         #     import matplotlib.pyplot as plt
-        #     fig, axes = plt.subplots(1, 2)
-        #     axes[0].imshow(depth[0,0].cpu().numpy())
+        #     fig, axes = plt.subplots(1, 4)
+        #     axes[0].imshow(obs[0,0].cpu().numpy())
         #     axes[0].scatter(px, py, c='r')
-        #     axes[1].imshow(depth_rot[0].cpu().numpy())
-        #     axes[1].scatter(px_rot, py_rot, c='r')
-        #     axes[0].set_title('Original (with action rotated back')
-        #     axes[1].set_title('Rotated')
+        #     axes[1].imshow(obs[0,1:].cpu().numpy().transpose(1,2,0))
+        #     axes[2].imshow(obs_rot[0,0].cpu().numpy())
+        #     axes[2].scatter(px_rot, py_rot, c='r')
+        #     axes[3].imshow(obs_rot[0,1:].cpu().numpy().transpose(1,2,0))
+        #     axes[0].set_title('Original depth (with action rotated back')
+        #     axes[1].set_title('Original rgb')
+        #     axes[2].set_title('Rotated depth')
+        #     axes[3].set_title('Rotated rgb')
         #     plt.show()
 
         # Check if buffer filled up
-        if self.depth_buffer.shape[0] < self.memory_capacity:
-            self.depth_buffer = torch.cat(
-                (self.depth_buffer, (depth_rot*255).byte()))[:self.memory_capacity]
+        if self.obs_buffer.shape[0] < self.memory_capacity:
+            self.obs_buffer = torch.cat(
+                (self.obs_buffer, (obs_rot*255).byte()))[:self.memory_capacity]
             self.ground_truth_buffer = torch.cat(
                 (self.ground_truth_buffer, new_ground_truth))[:self.memory_capacity]
             self.mask_buffer = torch.cat(
@@ -268,7 +273,7 @@ class AgentTrain(AgentBase):
                                         #    p=self.recency_buffer /
                                         #    np.sum(self.recency_buffer)
                                            )
-            self.depth_buffer[replace_ind] = (depth_rot*255).byte()
+            self.obs_buffer[replace_ind] = (obs_rot*255).byte()
             self.ground_truth_buffer[replace_ind] = new_ground_truth
             self.mask_buffer[replace_ind] = new_mask
             # self.recency_buffer[replace_ind] = recency
@@ -295,8 +300,8 @@ class AgentTrain(AgentBase):
         elif hasattr(self, 'memory_path'):
             raise NotImplementedError
         else:
-            self.depth_buffer = torch.empty(
-                (0, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
+            self.obs_buffer = torch.empty(
+                (0, self.num_obs_channel, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
             self.ground_truth_buffer = torch.empty(
                 (0, self.img_h, self.img_w), dtype=torch.uint8).to('cpu')
             self.mask_buffer = torch.empty(

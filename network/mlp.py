@@ -58,13 +58,13 @@ class MLP(nn.Module):
                             ('linear_1', linear_layer),
                             ('norm_1', nn.LayerNorm(o_dim)),
                         ]))
-                elif use_bn:
-                    module = nn.Sequential(
-                        OrderedDict([
-                            ('linear_1', linear_layer),
-                            ('norm_1', nn.BatchNorm1d(o_dim)),
-                            ('act_1', activation_dict[out_activation_type]),
-                        ]))
+                # elif use_bn:
+                #     module = nn.Sequential(
+                #         OrderedDict([
+                #             ('linear_1', linear_layer),
+                #             ('norm_1', nn.BatchNorm1d(o_dim)),
+                #             ('act_1', activation_dict[out_activation_type]),
+                #         ]))
                 else:
                     module = nn.Sequential(
                         OrderedDict([

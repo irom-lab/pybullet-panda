@@ -41,11 +41,12 @@ class GraspScript():
 
     def forward(self, obs, extra=None, **kwargs):
         """Different from grasp_bandit, here we do not rotate observation, but just pick pixels from the original observation, and then randomly pick theta."""
-        
-        # Assume depth only
-        assert obs.shape[1] == 1
-        N,_,H,W = obs.shape
-        obs = obs.detach().cpu().numpy()[:,0]
+
+        # Assume depth at first channel
+        N,C,H,W = obs.shape
+        assert C != 3, "Assume D or RGBD input."
+        depth_channel_ind = 0
+        obs = obs.detach().cpu().numpy()[:,depth_channel_ind]
 
         # Convert to float if uint8
         if obs.dtype == np.uint8:
@@ -58,9 +59,9 @@ class GraspScript():
 
             # Flip obs back in x if scaling
             if extra is not None:   # not the best design
-                scaling = extra[n]
-                if scaling > 1:
-                    obs[n] = np.flip(obs[n], axis=1)
+                table_rgba_all = extra[n]
+                if table_rgba_all[0] < 0.5:
+                    obs[n] = np.flip(obs[n], axis=-1)
 
             obs_single_ind = np.where(obs[n] > self.norm_z_threshold)
             ind = self.rng.integers(0, len(obs_single_ind[0]), size=1)
