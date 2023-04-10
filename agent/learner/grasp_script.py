@@ -57,11 +57,11 @@ class GraspScript():
         px_all = np.empty((0), dtype='int')
         for n in range(N):
 
-            # Flip obs back in x if scaling
-            if extra is not None:   # not the best design
-                table_rgba_all = extra[n]
-                if table_rgba_all[0] < 0.5:
-                    obs[n] = np.flip(obs[n], axis=-1)
+            # # Flip obs back in x if scaling
+            # if extra is not None:   # not the best design
+            #     table_rgba_all = extra[n]
+            #     if table_rgba_all[0] < 0.5:
+            #         obs[n] = np.flip(obs[n], axis=-1)
 
             obs_single_ind = np.where(obs[n] > self.norm_z_threshold)
             ind = self.rng.integers(0, len(obs_single_ind[0]), size=1)

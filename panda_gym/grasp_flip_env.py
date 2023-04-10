@@ -1,6 +1,7 @@
 import numpy as np
 
 from panda_gym.grasp_env import GraspEnv
+from util.geom import quatMult, euler2quat
 
 
 class GraspFlipEnv(GraspEnv):
@@ -35,6 +36,13 @@ class GraspFlipEnv(GraspEnv):
         # Change color
         self._p.changeVisualShape(self._table_id, -1,
                                   rgbaColor=task.table_rgba)
+
+
+    def step(self, action):
+        # flip action in x direction
+        if self.task.table_rgba[0] < 0.5:
+            action[0] = -action[0]
+        return super().step(action)
 
 
     def get_overhead_obs(self, camera_param):

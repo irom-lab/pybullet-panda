@@ -33,14 +33,16 @@ while task_id < num_task:
     # Make mug bigger
     if obj_name == 'mug':
         global_scaling = 1.2
+        y_pos = -0.1
     else:
         global_scaling = 1.0
+        y_pos = 0.1
     z_pos = obj_all[obj_name][1] * global_scaling
 
     # Sample pose
     # x_pos = random.sample([0.45,0.55], 1)[0]
     x_pos = sample_uniform(rng, obj_x_range)
-    y_pos = sample_uniform(rng, obj_y_range)
+    # y_pos = sample_uniform(rng, obj_y_range)
     yaw = sample_uniform(rng, obj_yaw_range)
     
     # Sample table color
@@ -57,4 +59,4 @@ while task_id < num_task:
     task_id += 1
 
 # Save
-save_obj(save_tasks, os.path.join('data', 'mug', 'eq_2'))
+save_obj(save_tasks, os.path.join('data', 'mug', 'eq_3'))

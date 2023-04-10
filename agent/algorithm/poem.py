@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import torch.nn.functional as F
 
 EPS = 1e-9 # epsilon global variable for similarity matrix
 
@@ -103,14 +104,20 @@ def contrastive_loss(similarity_matrix,
     """Contrative Loss with soft coupling (Used for alignment loss) """
 
     similarity_matrix /= temperature
-    neg_logits1, neg_logits2 = similarity_matrix, similarity_matrix
+    neg_logits1, neg_logits2 = similarity_matrix.clone(), similarity_matrix.clone()
     col_indices = torch.argmin(metric_values, dim=1)
     pos_logits1 = gather_row(similarity_matrix, col_indices)
     row_indices = torch.argmin(metric_values, dim=0)
     pos_logits2 = gather_col(similarity_matrix, row_indices)
 
+    # normalize metric_values and multiply by 1/coupling_temperature to use soft coupling
     if use_coupling_weights:
-        metric_values /= coupling_temperature
+        metric_values = F.normalize(metric_values.view(1,-1), p=2, dim=1).reshape(metric_values.shape)*100
+    else:
+        metric_values = F.normalize(metric_values.view(1,-1), p=2, dim=1).reshape(metric_values.shape)
+
+    if use_coupling_weights:
+        # metric_values /= coupling_temperature
         coupling = torch.exp(-metric_values)  #Gamma(x,y)
         pos_weights1 = -gather_row(metric_values, col_indices)
         pos_weights2 = -gather_col(metric_values, row_indices)
@@ -185,38 +192,3 @@ def representation_alignment_loss(state_encoder,
                                             use_coupling_weights=use_coupling_weights)
 
     return alignment_loss, metric_vals, similarity_matrix
-
-
-def compute_l1_loss(action_encoder,
-                    optimal_data_tuple,
-                    learned_encoder_coefficient,
-                    device='cpu'):
-
-    abstract_actions = []
-    for  obs, actions, _ in  optimal_data_tuple:
-        obs = torch.from_numpy(obs).float().to(device).permute(0,3,1,2)
-        # print(obs)
-        actions = torch.tensor(actions).int().to(device)
-
-        actions_abstract, actions_abstract_normalized = action_encoder(obs, actions, learned_encoder_coefficient)
-        abstract_actions.append(actions_abstract)
-
-    n = len(abstract_actions)
-    l1_loss = torch.tensor(0.).to(device)
-    for abstract_action_1 in abstract_actions:
-        for abstract_action_2 in abstract_actions:
-
-            l1_loss_pair = torch.sum(torch.pow(abstract_action_1 - abstract_action_2, 2)) # L1 loss on latent state space to collapse states
-
-            l1_loss += l1_loss_pair 
-    l1_loss /= n**2
-    return l1_loss
-    
-
-if __name__ == '__main__':
-    cost_matrix = 1 + torch.zeros((5,5))
-    actions_1 = torch.tensor([[0., 1.0],[0., 1.0],[0., 1.0],[1., 0.0],[0., 1.0]])
-    actions_2 = torch.tensor([[0., 1.0],[1., 0.0],[0., 1.0],[0., 1.0],[0., 1.0]])
-
-    cost_matrix = calculate_action_cost_matrix(actions_1, actions_2, False)
-    fp = metric_fixed_point(cost_matrix)

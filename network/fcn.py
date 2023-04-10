@@ -17,7 +17,8 @@ class Interpolate(nn.Module):
 
 class FCN(nn.Module):
     def __init__(self, 
-                 inner_channels=64, 
+                 inner_channels=64,
+                 append_dim=0, 
                  in_channels=1, 
                  out_channels=1, 
                  img_size=96,
@@ -39,7 +40,7 @@ class FCN(nn.Module):
         )  # Nx(inner_channels//4)x48x48
 
         self.down_layer_2 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 4,
+            nn.Conv2d(in_channels=inner_channels // 4 + append_dim,
                       out_channels=inner_channels // 2,
                       kernel_size=4,
                       stride=2,
@@ -50,7 +51,7 @@ class FCN(nn.Module):
         )  # Nx(inner_channels//2)x24x24
 
         self.down_layer_3 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 2,
+            nn.Conv2d(in_channels=inner_channels // 2 + append_dim,
                       out_channels=inner_channels,
                       kernel_size=4,
                       stride=2,
@@ -75,8 +76,7 @@ class FCN(nn.Module):
         )
 
         self.up_layer_2 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 2,
-                    #   + inner_channels // 2,
+            nn.Conv2d(in_channels=inner_channels // 2 + inner_channels // 2 + append_dim,
                       out_channels=inner_channels // 4,
                       kernel_size=3,
                       stride=1,
@@ -89,8 +89,7 @@ class FCN(nn.Module):
         )
 
         self.up_layer_3 = nn.Sequential(
-            nn.Conv2d(in_channels=inner_channels // 4,
-                    #   + inner_channels // 4,
+            nn.Conv2d(in_channels=inner_channels // 4 + inner_channels // 4 + append_dim,
                       out_channels=inner_channels // 8,
                       kernel_size=3,
                       stride=1,
@@ -128,12 +127,24 @@ class FCN(nn.Module):
 
     def forward(self, x, append=None):
         down1 = self.down_layer_1(x)
+
+        if append is not None:
+            down1 = torch.cat((down1, append[:,:,:down1.shape[2],:down1.shape[3]]), dim=1)
+        
         down2 = self.down_layer_2(down1)
+
+        if append is not None:
+            down2 = torch.cat((down2, append[:,:,:down2.shape[2],:down2.shape[3]]), dim=1)
+
         mid = self.down_layer_3(down2)
         up1 = self.up_layer_1(mid)
-        # up1 = torch.cat((up1, down2), dim=1)
+
+        up1 = torch.cat((up1, down2), dim=1)
+
         up2 = self.up_layer_2(up1)
-        # up2 = torch.cat((up2, down1), dim=1)
+
+        up2 = torch.cat((up2, down1), dim=1)
+
         up3 = self.up_layer_3(up2)
         # up3 = torch.cat((up3, x), dim=1)
         out = self.output_layer(up3)

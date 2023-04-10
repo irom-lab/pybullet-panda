@@ -59,8 +59,11 @@ class AgentImitateEq(AgentImitate):
             stats = []
             for update_ind in range(self.num_update):
                 batch_train = self.sample_batch()
-                action_decoder_ce_loss = self.learner.update_action_decoder(batch_train, verbose=update_ind < 1)
-                latent_policy_ce_loss, alignment_loss, latent_state_l1_loss, latent_action_l1_loss, stat = self.learner.update_latent_policy(batch_train, verbose=update_ind < 1, train_latent=flag_train_latent)
+                # action_decoder_ce_loss = self.learner.update_action_decoder(batch_train, verbose=update_ind < 1)
+                action_decoder_ce_loss, latent_action_l1_loss = self.learner.update_action_decoder(batch_train, verbose=update_ind < 1)
+                # action_decoder_ce_loss = 0
+                # latent_policy_ce_loss, alignment_loss, latent_state_l1_loss, latent_action_l1_loss, stat = self.learner.update_latent_policy(batch_train, verbose=update_ind < 1, train_latent=flag_train_latent)
+                latent_policy_ce_loss, alignment_loss, latent_state_l1_loss, stat = self.learner.update_latent_policy(batch_train, verbose=update_ind < 1, train_latent=flag_train_latent)
                 loss = np.vstack((loss, [action_decoder_ce_loss, latent_policy_ce_loss, alignment_loss, latent_state_l1_loss, latent_action_l1_loss]))
                 stats.append(stat)
             loss = np.sum(loss, axis=1) / self.num_update

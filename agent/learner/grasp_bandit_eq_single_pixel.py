@@ -15,7 +15,7 @@ from util.image import rotate_tensor
 from util.network import save_model
 
 
-class GraspBanditEq():
+class GraspBanditEqSinglePixel():
     def __init__(self, cfg):
         self.device = cfg.device
         self.rng = np.random.default_rng(seed=cfg.seed)
@@ -72,12 +72,11 @@ class GraspBanditEq():
         if verbose:
             logging.info('Action decoder: FCN')
         self.action_decoder = FCN(inner_channels=cfg.action_decoder.inner_channel_size,
-                                #   in_channels=self.obs_channel_size+self.latent_action_size-1,
-                                  in_channels=self.obs_channel_size+self.latent_action_size,
+                                  in_channels=self.obs_channel_size+self.latent_action_size-1,
                                   append_dim=self.latent_action_size,
                                   out_channels=1,
                                   img_size=img_size).to(self.device)
-
+        
         # State encoder - CNN+MLP - obs -> latent_state
         if verbose:
             logging.info('State encoder: Encoder (CNN+MLP)')
@@ -108,24 +107,24 @@ class GraspBanditEq():
                                  out_activation_type='identity',
                                 ).to(self.device)
         
-        # # Action encoder - CNN+MLP - (obs, action) -> latent_action
-        # if verbose:
-        #     logging.info('Action encoder: Encoder (CNN+MLP)')
-        # self.action_encoder = Encoder(in_channels=self.obs_channel_size+self.action_dim-1,
-        #                               img_sz=img_size,
-        #                               kernel_sz=cfg.action_encoder.kernel_size,
-        #                               stride=cfg.action_encoder.stride,
-        #                               padding=cfg.action_encoder.padding,
-        #                               n_channel=cfg.action_encoder.num_channel,
-        #                               mlp_hidden_dim=cfg.action_encoder.mlp_hidden_dim,
-        #                               mlp_output_dim=self.latent_action_size,
-        #                               use_sm=False,
-        #                               use_spec=False,
-        #                               use_bn_conv=True,  #!
-        #                               use_bn_mlp=False,
-        #                               use_ln_mlp=False,
-        #                               device=self.device,
-        #                               verbose=True)
+        # Action encoder - CNN+MLP - (obs, action) -> latent_action
+        if verbose:
+            logging.info('Action encoder: Encoder (CNN+MLP)')
+        self.action_encoder = Encoder(in_channels=self.obs_channel_size+self.latent_action_size-1,
+                                      img_sz=img_size,
+                                      kernel_sz=cfg.action_encoder.kernel_size,
+                                      stride=cfg.action_encoder.stride,
+                                      padding=cfg.action_encoder.padding,
+                                      n_channel=cfg.action_encoder.num_channel,
+                                      mlp_hidden_dim=cfg.action_encoder.mlp_hidden_dim,
+                                      mlp_output_dim=self.latent_action_size,
+                                      use_sm=False,
+                                      use_spec=False,
+                                      use_bn_conv=True,  #!
+                                      use_bn_mlp=False,
+                                      use_ln_mlp=False,
+                                      device=self.device,
+                                      verbose=True)
 
         # Tie weights for conv layers
         # if cfg.tie_conv:
@@ -144,8 +143,8 @@ class GraspBanditEq():
                 sum(p.numel() for p in self.state_encoder.parameters() if p.requires_grad)))
             logging.info('Total parameters in Latent Policy (MLP): {}'.format(
                 sum(p.numel() for p in self.latent_policy.parameters() if p.requires_grad)))
-            # logging.info('Total parameters in Action Encoder (CNN+MLP): {}'.format(
-                # sum(p.numel() for p in self.action_encoder.parameters() if p.requires_grad)))
+            logging.info('Total parameters in Action Encoder (CNN+MLP): {}'.format(
+                sum(p.numel() for p in self.action_encoder.parameters() if p.requires_grad)))
 
         # Create optimizer
         if not self.eval and build_optimizer:
@@ -166,8 +165,8 @@ class GraspBanditEq():
                                             lr=self.lr.state_encoder)
         self.latent_policy_optimizer = Adam(self.latent_policy.parameters(),
                                             lr=self.lr.latent_policy)
-        # self.action_encoder_optimizer = Adam(self.action_encoder.parameters(), 
-        #                                      lr=self.lr.action_encoder)
+        self.action_encoder_optimizer = Adam(self.action_encoder.parameters(), 
+                                             lr=self.lr.action_encoder)
         if self.lr_schedule:
             raise NotImplementedError
             # self.optimizer_scheduler = lr_scheduler.StepLR(
@@ -190,10 +189,10 @@ class GraspBanditEq():
         if obs.dtype == torch.uint8:
             obs = obs.float()/255.0
 
-        # #! Make a new obs for action decoder that only show a single pixel of RGB information
-        # obs_single_pixel = obs.clone()
-        # obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
-        # obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
+        #! Make a new obs for action decoder that only show a single pixel of RGB information
+        obs_single_pixel = obs.clone()
+        obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
+        obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
 
         # Switch to evaluation mode for batchnorm
         self.latent_policy.eval()
@@ -211,8 +210,8 @@ class GraspBanditEq():
         # Add latent action to channel dimension of obs
         latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
         latent_action = latent_action.repeat(1, 1, H, W)
-        obs_with_latent_action = torch.cat((obs, latent_action), dim=1)
-        # obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
+        # obs_with_latent_action = torch.cat((obs, latent_action), dim=1)
+        obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
 
         # Pass through action decoder to get affordance map
         fcn_pred = self.action_decoder(obs_with_latent_action, append=latent_action)
@@ -228,10 +227,10 @@ class GraspBanditEq():
         if obs.dtype == torch.uint8:
             obs = obs.float()/255.0
 
-        # #! Make a new obs for action decoder that only show a single pixel of RGB information
-        # obs_single_pixel = obs.clone()
-        # obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
-        # obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
+        #! Make a new obs for action decoder that only show a single pixel of RGB information
+        obs_single_pixel = obs.clone()
+        obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
+        obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
         # import matplotlib.pyplot as plt
         # for i in range(N):
         #     plt.imshow(obs_single_pixel[i,:,:,:].cpu().numpy().transpose(1,2,0))
@@ -251,12 +250,12 @@ class GraspBanditEq():
             state_rot_all = torch.cat((state_rot_all, state_rotated), dim=1)
         state_rot_all = state_rot_all.view(N*self.num_theta, C, H, W)
 
-        # #! Make a new obs for action decoder that only show a single pixel of RGB information
-        # obs_single_pixel_rot_all = torch.empty((N, 0, H, W)).to(obs.device)
-        # for theta in self.thetas:
-        #     obs_single_pixel_rotated = rotate_tensor(obs_single_pixel, theta=theta)
-        #     obs_single_pixel_rot_all = torch.cat((obs_single_pixel_rot_all, obs_single_pixel_rotated), dim=1)
-        # obs_single_pixel_rot_all = obs_single_pixel_rot_all.view(N*self.num_theta, 3, H, W)
+        #! Make a new obs for action decoder that only show a single pixel of RGB information
+        obs_single_pixel_rot_all = torch.empty((N, 0, H, W)).to(obs.device)
+        for theta in self.thetas:
+            obs_single_pixel_rotated = rotate_tensor(obs_single_pixel, theta=theta)
+            obs_single_pixel_rot_all = torch.cat((obs_single_pixel_rot_all, obs_single_pixel_rotated), dim=1)
+        obs_single_pixel_rot_all = obs_single_pixel_rot_all.view(N*self.num_theta, 3, H, W)
 
         # TODO: do not rotate for state encoder, but repeat for each theta?
 
@@ -275,8 +274,8 @@ class GraspBanditEq():
             # Add latent action to channel dimension of obs
             latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
             latent_action = latent_action.repeat(1, 1, H, W)
-            obs_with_latent_action = torch.cat((state_rot_all, latent_action), dim=1)
-            # obs_with_latent_action = torch.cat((obs_single_pixel_rot_all, latent_action), dim=1)
+            # obs_with_latent_action = torch.cat((state_rot_all, latent_action), dim=1)
+            obs_with_latent_action = torch.cat((obs_single_pixel_rot_all, latent_action), dim=1)
 
             # Pass through action decoder to get affordance map
             fcn_pred = self.action_decoder(obs_with_latent_action, append=latent_action)
@@ -348,84 +347,85 @@ class GraspBanditEq():
         return output
 
 
-    # def update_action_decoder(self, batch, verbose=False):
-    #     """
-    #     Update the action decoder with ce loss. 
-    #     Do not update the action encoder with ce loss.
-    #     """
+    def update_action_decoder(self, batch, verbose=False):
+        """
+        Update the action decoder with ce loss. 
+        Do not update the action encoder with ce loss.
+        """
+        latent_action_l1_loss_weight = self.cfg_poem.latent_action_l1_loss_weight
 
-    #     # Turn off action encoder gradient and turn on action decoder gradient
-    #     for param in self.action_encoder.parameters():
-    #         param.requires_grad = False
-    #     for param in self.action_decoder.parameters():
-    #         param.requires_grad = True
+        # Turn off action encoder gradient and turn on action decoder gradient
+        for param in self.action_encoder.parameters():
+            param.requires_grad = True  #!
+        for param in self.action_decoder.parameters():
+            param.requires_grad = False
 
-    #     # Switch to training mode for batchnorm
-    #     self.latent_policy.train()
-    #     self.action_encoder.train()
-    #     self.state_encoder.train()
-    #     self.action_decoder.train()
+        # Switch to training mode for batchnorm
+        self.latent_policy.train()
+        self.action_encoder.train()
+        self.state_encoder.train()
+        self.action_decoder.train()
 
-    #     # Unpack batch
-    #     obs_batch, ground_truth_batch, mask_batch, action_batch, _ = batch
-    #     N, C, H, W = obs_batch.shape
+        # Unpack batch
+        obs_batch, ground_truth_batch, mask_batch, action_batch, _ = batch
+        N, C, H, W = obs_batch.shape
 
-    #     # Convert data to float
-    #     if obs_batch.dtype == torch.uint8:
-    #         obs_batch = obs_batch.float()/255.0
-    #         ground_truth_batch = ground_truth_batch.float()
-    #         mask_batch = mask_batch.float()
+        # Convert data to float
+        if obs_batch.dtype == torch.uint8:
+            obs_batch = obs_batch.float()/255.0
+            ground_truth_batch = ground_truth_batch.float()
+            mask_batch = mask_batch.float()
 
-    #     #! Make a new obs for action decoder that only show a single pixel of RGB information
-    #     obs_single_pixel = obs_batch.clone()
-    #     obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
-    #     obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
+        #! Make a new obs for action decoder that only show a single pixel of RGB information
+        obs_single_pixel = obs_batch.clone()
+        obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
+        obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
 
-    #     # Normalize action
-    #     action_batch /= self.img_size
+        # Normalize action
+        action_batch /= self.img_size
 
-    #     # Add action to channel dimension of obs
-    #     action_batch = action_batch.unsqueeze(-1).unsqueeze(-1)
-    #     action_batch = action_batch.repeat(1, 1, H, W)
-    #     obs_with_action = torch.cat((obs_single_pixel, action_batch), dim=1)    #!
-    #     # obs_with_action = torch.cat((obs_batch, action_batch), dim=1)
+        # Add action to channel dimension of obs
+        action_batch = action_batch.unsqueeze(-1).unsqueeze(-1)
+        action_batch = action_batch.repeat(1, 1, H, W)
+        obs_with_action = torch.cat((obs_single_pixel, action_batch), dim=1)    #!
+        # obs_with_action = torch.cat((obs_batch, action_batch), dim=1)
 
-    #     # Pass obs and action through action_encoder
-    #     latent_action = self.action_encoder(obs_with_action)
-    #     # latent_action = self.soft_max(latent_action)    #!
-    #     # if verbose:
-    #     #     logging.info(f'update action decoder: {latent_action[0]}')
+        # Pass obs and action through action_encoder
+        latent_action = self.action_encoder(obs_with_action)
+        # latent_action = self.soft_max(latent_action)    #!
+        # if verbose:
+        #     logging.info(f'update action decoder: {latent_action[0]}')
 
-    #     # L1 loss on any pairs of latent action
-    #     # latent_action_l1_loss = torch.mean(torch.abs(latent_action[:,None,:] - latent_action[None,:,:]))
+        # L1 loss on any pairs of latent action
+        latent_action_l1_loss = torch.mean(torch.abs(latent_action[:,None,:] - latent_action[None,:,:]))
 
-    #     # Add latent action to channel dimension of obs
-    #     latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
-    #     latent_action = latent_action.repeat(1, 1, H, W)
-    #     # obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
-    #     obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
+        # Add latent action to channel dimension of obs
+        latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
+        latent_action = latent_action.repeat(1, 1, H, W)
+        # obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
+        obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
 
-    #     # Pass through action decoder to get affordance map
-    #     pred_train_batch = self.action_decoder(obs_with_latent_action).squeeze(1)  # NxHxW
+        # Pass through action decoder to get affordance map
+        pred_train_batch = self.action_decoder(obs_with_latent_action, append=latent_action).squeeze(1)  # NxHxW
         
-    #     # Forward, get loss, zero gradients
-    #     action_decoder_training_loss = self.ce_loss(pred_train_batch, ground_truth_batch) 
-    #     # + 0.0001*latent_action_l1_loss
-    #     self.action_encoder_optimizer.zero_grad()
-    #     self.action_decoder_optimizer.zero_grad()
+        # Forward, get loss, zero gradients
+        ce_loss = self.ce_loss(pred_train_batch, ground_truth_batch) 
+        action_decoder_training_loss = ce_loss + latent_action_l1_loss_weight*latent_action_l1_loss
+        self.action_encoder_optimizer.zero_grad()
+        self.action_decoder_optimizer.zero_grad()
 
-    #     # mask gradient for non-selected pixels
-    #     if self.mask_grad:
-    #         pred_train_batch.retain_grad()
-    #         pred_train_batch.register_hook(lambda grad: grad * mask_batch)
+        # mask gradient for non-selected pixels
+        if self.mask_grad:
+            pred_train_batch.retain_grad()
+            pred_train_batch.register_hook(lambda grad: grad * mask_batch)
 
-    #     # Update action decoder paramaters using clipped gradients
-    #     action_decoder_training_loss.backward()
-    #     torch.nn.utils.clip_grad_norm_(self.action_decoder.parameters(), 
-    #                                    self.cfg_gradient_clip.action_decoder)
-    #     # self.action_encoder_optimizer.step()
-    #     self.action_decoder_optimizer.step()
-    #     return action_decoder_training_loss.detach().cpu().numpy()
+        # Update action decoder paramaters using clipped gradients
+        action_decoder_training_loss.backward()
+        # torch.nn.utils.clip_grad_norm_(self.action_decoder.parameters(), 
+        #                                self.cfg_gradient_clip.action_decoder)
+        self.action_encoder_optimizer.step()
+        # self.action_decoder_optimizer.step()
+        return ce_loss.detach().cpu().numpy(), latent_action_l1_loss.detach().cpu().numpy()
 
 
     def update_latent_policy(self, batch, train_latent=False, verbose=False):
@@ -448,14 +448,14 @@ class GraspBanditEq():
         stats = {}
 
         # Turn on action encoder gradient and turn off action decoder gradient
-        # for param in self.action_encoder.parameters():
-        #     param.requires_grad = True
-        # for param in self.action_decoder.parameters():
-            # param.requires_grad = False
+        for param in self.action_encoder.parameters():
+            param.requires_grad = False
+        for param in self.action_decoder.parameters():
+            param.requires_grad = True
 
         # Switch to training mode for batchnorm
         self.latent_policy.train()
-        # self.action_encoder.train()
+        self.action_encoder.train()
         self.state_encoder.train()
         self.action_decoder.train()
 
@@ -469,10 +469,10 @@ class GraspBanditEq():
             ground_truth_batch = ground_truth_batch.float()
             mask_batch = mask_batch.float()
 
-        # #! Make a new obs for action decoder that only show a single pixel of RGB information
-        # obs_single_pixel = obs_batch.clone()
-        # obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
-        # obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
+        #! Make a new obs for action decoder that only show a single pixel of RGB information
+        obs_single_pixel = obs_batch.clone()
+        obs_single_pixel = obs_single_pixel[:,1:,0,0].unsqueeze(-1).unsqueeze(-1)
+        obs_single_pixel = obs_single_pixel.repeat(1,1,H,W)
 
         # Normalize action
         action_batch /= self.img_size
@@ -491,8 +491,8 @@ class GraspBanditEq():
         # Add latent action to channel dimension of obs
         latent_action = latent_action.unsqueeze(-1).unsqueeze(-1)
         latent_action = latent_action.repeat(1, 1, H, W)
-        obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
-        # obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
+        # obs_with_latent_action = torch.cat((obs_batch, latent_action), dim=1)
+        obs_with_latent_action = torch.cat((obs_single_pixel, latent_action), dim=1)
 
         # Pass obs and latent action through action decoder
         pred_train_batch = self.action_decoder(obs_with_latent_action, append=latent_action).squeeze(1)  # NxHxW
@@ -554,8 +554,8 @@ class GraspBanditEq():
             # Get latent state and then similarity matrix
             latent_state_1 = self.state_encoder(obs_1)
             latent_state_2 = self.state_encoder(obs_2)
-            latent_action_1 = self.latent_policy(latent_state_1)
-            latent_action_2 = self.latent_policy(latent_state_2)
+            # latent_action_1 = self.latent_policy(latent_state_1)
+            # latent_action_2 = self.latent_policy(latent_state_2)
             # latent_state_1 = self.soft_max(latent_state_1)
             # latent_state_2 = self.soft_max(latent_state_2)
             similarity_matrix = cosine_similarity(latent_state_1, latent_state_2)
@@ -576,12 +576,12 @@ class GraspBanditEq():
             actions_2 = actions_2.repeat(1, 1, H, W)
             # obs_with_action_1 = torch.cat((obs_1, actions_1), dim=1)
             # obs_with_action_2 = torch.cat((obs_2, actions_2), dim=1)
-            # obs_with_action_1 = torch.cat((obs_single_pixel[indices_1], actions_1), dim=1)
-            # obs_with_action_2 = torch.cat((obs_single_pixel[indices_2], actions_2), dim=1)
+            obs_with_action_1 = torch.cat((obs_single_pixel[indices_1], actions_1), dim=1)
+            obs_with_action_2 = torch.cat((obs_single_pixel[indices_2], actions_2), dim=1)
 
             # Get latent action using action encoder
-            # latent_action_1 = self.action_encoder(obs_with_action_1)
-            # latent_action_2 = self.action_encoder(obs_with_action_2)
+            latent_action_1 = self.action_encoder(obs_with_action_1)
+            latent_action_2 = self.action_encoder(obs_with_action_2)
             # latent_action_1 = self.soft_max(latent_action_1) #!
             # latent_action_2 = self.soft_max(latent_action_2)
 
@@ -653,7 +653,7 @@ class GraspBanditEq():
         # Zero gradients
         self.state_encoder.zero_grad()
         self.latent_policy.zero_grad()
-        # self.action_encoder.zero_grad()
+        self.action_encoder.zero_grad()
         self.action_decoder.zero_grad()
 
         # mask gradient for non-selected pixels
@@ -667,8 +667,8 @@ class GraspBanditEq():
                                        self.cfg_gradient_clip.state_encoder)
         torch.nn.utils.clip_grad_norm_(self.latent_policy.parameters(), 
                                        self.cfg_gradient_clip.latent_policy)
-        # torch.nn.utils.clip_grad_norm_(self.action_encoder.parameters(), 
-        #                                self.cfg_gradient_clip.action_encoder)
+        torch.nn.utils.clip_grad_norm_(self.action_encoder.parameters(), 
+                                       self.cfg_gradient_clip.action_encoder)
         torch.nn.utils.clip_grad_norm_(self.action_decoder.parameters(), 
                                        self.cfg_gradient_clip.action_decoder)
 
@@ -681,7 +681,8 @@ class GraspBanditEq():
         self.latent_policy_optimizer.step()
         # self.action_encoder_optimizer.step()
         self.action_decoder_optimizer.step()
-        return ce_loss.detach().cpu().numpy(), alignment_loss.detach().cpu().numpy(), latent_state_l1_loss.detach().cpu().numpy(), latent_action_l1_loss.detach().cpu().numpy(), stats
+        return ce_loss.detach().cpu().numpy(), alignment_loss.detach().cpu().numpy(), latent_state_l1_loss.detach().cpu().numpy(), stats
+            # latent_action_l1_loss.detach().cpu().numpy(), 
 
 
     def update_hyper_param(self):
