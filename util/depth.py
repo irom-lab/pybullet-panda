@@ -98,7 +98,6 @@ def get_pointcloud(depth, intrinsics):
 #     # print('Far: ', params['far'])
 #     return params
 
-
 # # Camera pixel location to 3D world location (point cloud)
 # def depth_pixel_2_xy(depth_buffer, param=None):
 #     point_cloud = np.zeros((0, 3))
@@ -143,7 +142,6 @@ def get_pointcloud(depth, intrinsics):
 #     plt.show()
 #     # np.savez(save_path, pixel2xy=pixel2xy)
 #     return pixel2xy
-
 
 # def getRayFromTo(mouseX, mouseY, param):
 

@@ -13,6 +13,7 @@ from util.network import tie_weights
 
 class Encoder(torch.nn.Module):
     """Conv layers shared by actor and critic in SAC."""
+
     def __init__(
         self,
         input_n_channel,
@@ -33,17 +34,19 @@ class Encoder(torch.nn.Module):
             print(
                 "The neural network for encoder has the architecture as below:"
             )
-        self.conv = ConvNet(input_n_channel=input_n_channel,
-                            cnn_kernel_size=kernel_sz,
-                            cnn_stride=stride,
-                            cnn_padding=padding,
-                            output_n_channel=n_channel,
-                            img_size=img_sz,
-                            use_sm=use_sm,
-                            use_spec=use_spec,
-                            use_bn=use_bn,
-                            use_residual=use_residual,
-                            verbose=verbose).to(device)
+        self.conv = ConvNet(
+            input_n_channel=input_n_channel,
+            cnn_kernel_size=kernel_sz,
+            cnn_stride=stride,
+            cnn_padding=padding,
+            output_n_channel=n_channel,
+            img_size=img_sz,
+            use_sm=use_sm,
+            use_spec=use_spec,
+            use_bn=use_bn,
+            use_residual=use_residual,
+            verbose=verbose,
+        ).to(device)
 
     def forward(self, image, detach=False):
         if len(image.shape) == 3:
@@ -59,11 +62,12 @@ class Encoder(torch.nn.Module):
         Tie convolutional layers - assume actor and critic have same conv
         structure.
         """
-        for source_module, module in zip(source.conv.moduleList,
-                                         self.conv.moduleList):
+        for source_module, module in zip(
+            source.conv.moduleList, self.conv.moduleList
+        ):
             for source_layer, layer in zip(
-                    source_module.children(), module.children(
-                    )):  # children() works for both Sequential and nn.Module
+                source_module.children(), module.children()
+            ):  # children() works for both Sequential and nn.Module
                 if isinstance(layer, nn.Conv2d):
                     tie_weights(src=source_layer, trg=layer)
 
@@ -72,6 +76,7 @@ class Encoder(torch.nn.Module):
 
 
 class SACPiNetwork(torch.nn.Module):
+
     def __init__(
         self,
         input_n_channel,
@@ -110,18 +115,12 @@ class SACPiNetwork(torch.nn.Module):
             self.img_sz = [img_sz, img_sz]
 
         # Conv layers shared with critic
-        self.encoder = Encoder(input_n_channel=input_n_channel,
-                               img_sz=img_sz,
-                               kernel_sz=kernel_sz,
-                               stride=stride,
-                               padding=padding,
-                               n_channel=n_channel,
-                               use_sm=use_sm,
-                               use_spec=False,
-                               use_bn=use_bn,
-                               use_residual=use_residual,
-                               device=device,
-                               verbose=False)
+        self.encoder = Encoder(
+            input_n_channel=input_n_channel, img_sz=img_sz,
+            kernel_sz=kernel_sz, stride=stride, padding=padding,
+            n_channel=n_channel, use_sm=use_sm, use_spec=False, use_bn=use_bn,
+            use_residual=use_residual, device=device, verbose=False
+        )
         if use_sm:
             dim_conv_out = n_channel[-1] * 2  # assume spatial softmax
         else:
@@ -130,41 +129,40 @@ class SACPiNetwork(torch.nn.Module):
         # Add recurrent if specified
         if rec_type == 'GRU':
             self.layernorm = nn.LayerNorm(dim_conv_out).to(self.device)
-            self.rec = GRU(dim_conv_out + append_dim,
-                           rec_hidden_size,
-                           device=device,
-                           num_layers=rec_num_layers,
-                           bidirectional=rec_bidirectional,
-                           dropout=rec_dropout)  # output dim is hidden_size
+            self.rec = GRU(
+                dim_conv_out + append_dim, rec_hidden_size, device=device,
+                num_layers=rec_num_layers, bidirectional=rec_bidirectional,
+                dropout=rec_dropout
+            )  # output dim is hidden_size
             rec_output_dim = (int(rec_bidirectional) + 1) * rec_hidden_size
-            mlp_dim = [rec_output_dim + latent_dim] + mlp_dim + [action_dim]
+            mlp_dim = [rec_output_dim+latent_dim] + mlp_dim + [action_dim]
         elif rec_type == 'LSTM':
             self.layernorm = nn.LayerNorm(dim_conv_out).to(self.device)
-            self.rec = LSTM(dim_conv_out + append_dim,
-                            rec_hidden_size,
-                            device=device,
-                            num_layers=rec_num_layers,
-                            bidirectional=rec_bidirectional,
-                            dropout=rec_dropout)  # output dim is hidden_size
+            self.rec = LSTM(
+                dim_conv_out + append_dim, rec_hidden_size, device=device,
+                num_layers=rec_num_layers, bidirectional=rec_bidirectional,
+                dropout=rec_dropout
+            )  # output dim is hidden_size
             rec_output_dim = (int(rec_bidirectional) + 1) * rec_hidden_size
-            mlp_dim = [rec_output_dim + latent_dim] + mlp_dim + [action_dim]
+            mlp_dim = [rec_output_dim+latent_dim] + mlp_dim + [action_dim]
         else:
             self.rec = None
-            mlp_dim = [dim_conv_out + append_dim + latent_dim
-                       ] + mlp_dim + [action_dim]
+            mlp_dim = [dim_conv_out+append_dim+latent_dim
+                      ] + mlp_dim + [action_dim]
 
         # Linear layers
-        self.mlp = GaussianPolicy(mlp_dim, action_mag, activation_type, use_ln,
-                                  device, verbose)
+        self.mlp = GaussianPolicy(
+            mlp_dim, action_mag, activation_type, use_ln, device, verbose
+        )
 
     def forward(
-            self,
-            image,  # NCHW or LNCHW
-            append=None,  # LN x append_dim
-            latent=None,  # LN x z_dim
-            detach_encoder=False,
-            detach_rec=False,
-            init_rnn_state=None,  # N x hidden_dim
+        self,
+        image,  # NCHW or LNCHW
+        append=None,  # LN x append_dim
+        latent=None,  # LN x z_dim
+        detach_encoder=False,
+        detach_rec=False,
+        init_rnn_state=None,  # N x hidden_dim
     ):
         """
         Assume all arguments have the same number of leading dims (L and N),
@@ -251,13 +249,10 @@ class SACPiNetwork(torch.nn.Module):
         else:
             return output
 
-    def sample(self,
-               image,
-               append=None,
-               latent=None,
-               detach_encoder=False,
-               detach_rec=False,
-               init_rnn_state=None):
+    def sample(
+        self, image, append=None, latent=None, detach_encoder=False,
+        detach_rec=False, init_rnn_state=None
+    ):
         """
         Assume all arguments have the same number of leading dims (L and N),
         and returns the same number of leading dims. init_rnn_state is always
@@ -343,13 +338,18 @@ class SACPiNetwork(torch.nn.Module):
         if self.rec is None:
             raise NotImplementedError
         else:
-            return (torch.randn(self.rec_hidden_batch_dim, 1,
-                                self.rec_hidden_size).to(self.device),
-                    torch.randn(self.rec_hidden_batch_dim, 1,
-                                self.rec_hidden_size).to(self.device))
+            return (
+                torch.randn(
+                    self.rec_hidden_batch_dim, 1, self.rec_hidden_size
+                ).to(self.device),
+                torch.randn(
+                    self.rec_hidden_batch_dim, 1, self.rec_hidden_size
+                ).to(self.device)
+            )
 
 
 class SACTwinnedQNetwork(torch.nn.Module):
+
     def __init__(
         self,
         input_n_channel,
@@ -383,18 +383,12 @@ class SACTwinnedQNetwork(torch.nn.Module):
             self.img_sz = [img_sz, img_sz]
 
         # Conv layers shared with critic
-        self.encoder = Encoder(input_n_channel=input_n_channel,
-                               img_sz=img_sz,
-                               kernel_sz=kernel_sz,
-                               stride=stride,
-                               padding=padding,
-                               n_channel=n_channel,
-                               use_sm=use_sm,
-                               use_spec=False,
-                               use_bn=use_bn,
-                               use_residual=use_residual,
-                               device=device,
-                               verbose=False)
+        self.encoder = Encoder(
+            input_n_channel=input_n_channel, img_sz=img_sz,
+            kernel_sz=kernel_sz, stride=stride, padding=padding,
+            n_channel=n_channel, use_sm=use_sm, use_spec=False, use_bn=use_bn,
+            use_residual=use_residual, device=device, verbose=False
+        )
         if use_sm:
             dim_conv_out = n_channel[-1] * 2  # assume spatial softmax
         else:
@@ -403,49 +397,40 @@ class SACTwinnedQNetwork(torch.nn.Module):
         # Add Recurrent if specified
         if rec_type == 'GRU':
             self.layernorm = nn.LayerNorm(dim_conv_out).to(self.device)
-            self.rec = GRU(dim_conv_out + append_dim,
-                           rec_hidden_size,
-                           device=device,
-                           num_layers=rec_num_layers,
-                           bidirectional=rec_bidirectional,
-                           dropout=rec_dropout)  # output dim is hidden_size
+            self.rec = GRU(
+                dim_conv_out + append_dim, rec_hidden_size, device=device,
+                num_layers=rec_num_layers, bidirectional=rec_bidirectional,
+                dropout=rec_dropout
+            )  # output dim is hidden_size
             rec_output_dim = (int(rec_bidirectional) + 1) * rec_hidden_size
-            mlp_dim = [rec_output_dim + latent_dim + action_dim
-                       ] + mlp_dim + [1]
+            mlp_dim = [rec_output_dim+latent_dim+action_dim] + mlp_dim + [1]
         elif rec_type == 'LSTM':
             self.layernorm = nn.LayerNorm(dim_conv_out).to(self.device)
-            self.rec = LSTM(dim_conv_out + append_dim,
-                            rec_hidden_size,
-                            device=device,
-                            num_layers=rec_num_layers,
-                            bidirectional=rec_bidirectional,
-                            dropout=rec_dropout)  # output dim is hidden_size
+            self.rec = LSTM(
+                dim_conv_out + append_dim, rec_hidden_size, device=device,
+                num_layers=rec_num_layers, bidirectional=rec_bidirectional,
+                dropout=rec_dropout
+            )  # output dim is hidden_size
             rec_output_dim = (int(rec_bidirectional) + 1) * rec_hidden_size
-            mlp_dim = [rec_output_dim + latent_dim + action_dim
-                       ] + mlp_dim + [1]
+            mlp_dim = [rec_output_dim+latent_dim+action_dim] + mlp_dim + [1]
         else:
             self.rec = None
-            mlp_dim = [dim_conv_out + latent_dim + append_dim + action_dim
-                       ] + mlp_dim + [1]
+            mlp_dim = [dim_conv_out+latent_dim+append_dim+action_dim
+                      ] + mlp_dim + [1]
 
-        self.Q1 = MLP(mlp_dim,
-                      activation_type,
-                      out_activation_type='Identity',
-                      use_ln=use_ln,
-                      verbose=False).to(device)
+        self.Q1 = MLP(
+            mlp_dim, activation_type, out_activation_type='Identity',
+            use_ln=use_ln, verbose=False
+        ).to(device)
         self.Q2 = copy.deepcopy(self.Q1)
         if verbose:
             print("The MLP for critic has the architecture as below:")
             print(self.Q1.moduleList)
 
-    def forward(self,
-                image,
-                actions,
-                append=None,
-                latent=None,
-                detach_encoder=False,
-                detach_rec=False,
-                init_rnn_state=None):
+    def forward(
+        self, image, actions, append=None, latent=None, detach_encoder=False,
+        detach_rec=False, init_rnn_state=None
+    ):
         """
         Assume all arguments have the same number of leading dims (L and N),
         and returns the same number of leading dims. init_rnn_state is always
@@ -543,25 +528,21 @@ class SACTwinnedQNetwork(torch.nn.Module):
 
 #== Policy (Actor) Model ==
 class GaussianPolicy(nn.Module):
-    def __init__(self,
-                 dimList,
-                 action_mag,
-                 activation_type='relu',
-                 use_ln=True,
-                 device='cpu',
-                 verbose=True):
+
+    def __init__(
+        self, dimList, action_mag, activation_type='relu', use_ln=True,
+        device='cpu', verbose=True
+    ):
         super(GaussianPolicy, self).__init__()
         self.device = device
-        self.mean = MLP(dimList,
-                        activation_type,
-                        out_activation_type='Tanh',
-                        use_ln=use_ln,
-                        verbose=False).to(device)
-        self.log_std = MLP(dimList,
-                           activation_type,
-                           out_activation_type='Identity',
-                           use_ln=use_ln,
-                           verbose=False).to(device)
+        self.mean = MLP(
+            dimList, activation_type, out_activation_type='Tanh',
+            use_ln=use_ln, verbose=False
+        ).to(device)
+        self.log_std = MLP(
+            dimList, activation_type, out_activation_type='Identity',
+            use_ln=use_ln, verbose=False
+        ).to(device)
         if verbose:
             print("The MLP for MEAN has the architecture as below:")
             print(self.mean.moduleList)

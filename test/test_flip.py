@@ -6,6 +6,7 @@ import pybullet as p
 from panda.panda_env import plot_frame_pb
 from panda.flip_env import FlipEnv
 
+
 print()
 # Connect to PyBullet in GUI
 p.connect(p.GUI, options="--width=2600 --height=1800")
@@ -16,31 +17,34 @@ p.resetDebugVisualizerCamera(0.7, 160, -30, [0.5, 0, 0])
 env = FlipEnv(
     mu=0.5,  # tangential friction coefficient
     sigma=0.1,  # torsional friction coefficient
-    finger_type='long')
+    finger_type='long'
+)
 env.reset_env()
 
 # Load an object - assume [x=0.5, y=0] is the center of workspace
 # spatula_path = '/home/allen/data/processed_objects/YCB/028_spatula/google_16k/028_spatula.urdf'
 spatula_path = 'data/private/spatula/spatula.urdf'
 pancake_path = 'data/private/pancake/pancake.urdf'
-spatula_id = p.loadURDF(spatula_path,
-                        basePosition=[0.45, 0.1, 0.001],
-                        baseOrientation=p.getQuaternionFromEuler([0, 0, 0]))
-pancake_id = p.loadURDF(pancake_path,
-                        basePosition=[0.6, 0.1, 0.005],
-                        baseOrientation=p.getQuaternionFromEuler([0, 0, 0]))
+spatula_id = p.loadURDF(
+    spatula_path, basePosition=[0.45, 0.1, 0.001],
+    baseOrientation=p.getQuaternionFromEuler([0, 0, 0])
+)
+pancake_id = p.loadURDF(
+    pancake_path, basePosition=[0.6, 0.1, 0.005],
+    baseOrientation=p.getQuaternionFromEuler([0, 0, 0])
+)
 p.changeDynamics(
     pancake_id,
     -1,
     lateralFriction=0.4,
     spinningFriction=0.01,
     rollingFriction=0.001,  #!
-    collisionMargin=0.00)
-p.changeDynamics(spatula_id,
-                 -1,
-                 lateralFriction=0.3,
-                 spinningFriction=0.01,
-                 collisionMargin=0.00)
+    collisionMargin=0.00
+)
+p.changeDynamics(
+    spatula_id, -1, lateralFriction=0.3, spinningFriction=0.01,
+    collisionMargin=0.00
+)
 # p.changeDynamics(
 #     env._pandaId,
 #     env._panda.pandaLeftFingerLinkIndex,
@@ -65,19 +69,18 @@ env.move_pos(
     [0.30, 0.1, 0.25],
     absolute_global_euler=[-np.pi, np.pi,
                            0],  # use yaw-pitch-roll; see utils_geom.py
-    numSteps=300)
+    numSteps=300
+)
 # time.sleep(1)
 
 # Move down
-env.move_pos([0.30, 0.1, 0.20],
-             absolute_global_euler=[-np.pi, np.pi, 0],
+env.move_pos([0.30, 0.1, 0.20], absolute_global_euler=[-np.pi, np.pi, 0],
              numSteps=300)
 # time.sleep(1)
 
 # Grasp - this only sets the gripper velocity, no simulation step; thus need to call move_pos again to the same position to allow finger closing
 env.grasp(targetVel=-0.10)
-env.move_pos([0.30, 0.1, 0.195],
-             absolute_global_euler=[-np.pi, np.pi, 0],
+env.move_pos([0.30, 0.1, 0.195], absolute_global_euler=[-np.pi, np.pi, 0],
              numSteps=100)
 # time.sleep(1)
 
@@ -89,19 +92,19 @@ env.move_pos([0.30, 0.1, 0.195],
 
 # tilt
 env.move_pos([0.42, 0.1, 0.195],
-             absolute_global_euler=[-np.pi, np.pi + np.pi / 8, 0],
-             numSteps=500)
+             absolute_global_euler=[-np.pi, np.pi + np.pi / 8,
+                                    0], numSteps=500)
 # time.sleep(1)
 
 # Move
 env.move_pos([0.52, 0.1, 0.195],
-             absolute_global_euler=[-np.pi, np.pi + np.pi / 8, 0],
-             numSteps=100)
+             absolute_global_euler=[-np.pi, np.pi + np.pi / 8,
+                                    0], numSteps=100)
 time.sleep(1)
 
 env.move_pos([0.52, 0.1, 0.21],
-             absolute_global_euler=[-np.pi, np.pi + np.pi / 12, 0],
-             numSteps=100)
+             absolute_global_euler=[-np.pi, np.pi + np.pi / 12,
+                                    0], numSteps=100)
 time.sleep(1)
 
 # Lift fast!

@@ -6,6 +6,7 @@ from util.geom import quat2euler
 
 
 class PushEnv(PandaEnv):
+
     def __init__(
         self,
         task=None,
@@ -27,17 +28,16 @@ class PushEnv(PandaEnv):
         # Continuous action space
         # self.action_low = np.array([-0.1, -0.3, -np.pi/4])
         # self.action_high = np.array([0.3, 0.3, np.pi/4])
-        self._action_low = np.array([-0.05, -0.1, -np.pi/4])
-        self._action_high = np.array([0.15, 0.1, np.pi/4])
+        self._action_low = np.array([-0.05, -0.1, -np.pi / 4])
+        self._action_high = np.array([0.15, 0.1, np.pi / 4])
         self._finger_open_pos = 0.0
 
         # Max object range
-        self._max_obj_yaw = np.pi/2
+        self._max_obj_yaw = np.pi / 2
 
         # Max EE range
         self._max_ee_x = [0.2, 0.8]
         self._max_ee_y = [-0.3, 0.3]
-
 
     @property
     def state_dim(self):
@@ -46,7 +46,6 @@ class PushEnv(PandaEnv):
         """
         return 3
 
-
     @property
     def action_dim(self):
         """
@@ -54,18 +53,15 @@ class PushEnv(PandaEnv):
         """
         return 3
 
-
     @property
     def state(self):
         ee_pos, ee_orn = self._get_ee()
         ee_yaw = quat2euler(ee_orn)[0:1]
         return np.hstack((ee_pos[:2], ee_yaw))
 
-
     def close_pb(self):
         super().close_pb()
         self.obj_id = None
-
 
     def reset_task(self, task):
         """
@@ -83,7 +79,7 @@ class PushEnv(PandaEnv):
             self._p.GEOM_BOX, halfExtents=task['obj_half_dim']
         )
         box_visual_id = self._p.createVisualShape(
-            self._p.GEOM_BOX, rgbaColor=[0.3,0.4,0.1,1.0], 
+            self._p.GEOM_BOX, rgbaColor=[0.3, 0.4, 0.1, 1.0],
             halfExtents=task['obj_half_dim']
         )
         self.obj_id = self._p.createMultiBody(
@@ -91,7 +87,9 @@ class PushEnv(PandaEnv):
             baseCollisionShapeIndex=box_collision_id,
             baseVisualShapeIndex=box_visual_id,
             basePosition=task['obj_pos'],
-            baseOrientation=self._p.getQuaternionFromEuler([0,0,task['obj_yaw']]),
+            baseOrientation=self._p.getQuaternionFromEuler([
+                0, 0, task['obj_yaw']
+            ]),
             baseInertialFramePosition=task['obj_com_offset'],
         )
 
@@ -113,9 +111,12 @@ class PushEnv(PandaEnv):
             self._p.stepSimulation()
 
         # Record object initial pos
-        self._obj_initial_pos, _ = self._p.getBasePositionAndOrientation(self.obj_id)  # this returns COM, not geometric center!
-        self.initial_dist = np.linalg.norm(self._obj_initial_pos[:2] - self.target_pos)
-
+        self._obj_initial_pos, _ = self._p.getBasePositionAndOrientation(
+            self.obj_id
+        )  # this returns COM, not geometric center!
+        self.initial_dist = np.linalg.norm(
+            self._obj_initial_pos[:2] - self.target_pos
+        )
 
     def step(self, action):
         """
@@ -125,12 +126,13 @@ class PushEnv(PandaEnv):
         Assume action in [x,y, yaw] velocity. Right now velocity control is instantaneous, not accounting for acceleration
         """
         # Extract action
-        raw_action = unnormalize_tanh(action, self._action_low, 
-                                              self._action_high)
+        raw_action = unnormalize_tanh(
+            action, self._action_low, self._action_high
+        )
         x_vel, y_vel, yaw_vel = raw_action
         target_lin_vel = [x_vel, y_vel, 0]
         target_ang_vel = [0, 0, yaw_vel]
-        self.move_vel(target_lin_vel, target_ang_vel, num_steps=48) # 5Hz
+        self.move_vel(target_lin_vel, target_ang_vel, num_steps=48)  # 5Hz
 
         # Check EE
         ee_pos, ee_orn = self._get_ee()
@@ -141,10 +143,11 @@ class PushEnv(PandaEnv):
         obj_yaw = min(abs(quat2euler(obj_quat)[0]), self._max_obj_yaw)
         dist = np.linalg.norm(obj_pos[:2] - self.target_pos)
         yaw_weight = 0.8
-        dist_ratio = dist/self.initial_dist
-        yaw_ratio = obj_yaw/self._max_obj_yaw
+        dist_ratio = dist / self.initial_dist
+        yaw_ratio = obj_yaw / self._max_obj_yaw
         if dist_ratio < 0.2 and yaw_ratio < 0.2:
-            reward = (1-dist_ratio/0.2)*(1-yaw_weight) + (1-yaw_ratio/0.2)*yaw_weight
+            reward = (1 - dist_ratio/0.2
+                     ) * (1-yaw_weight) + (1 - yaw_ratio/0.2) * yaw_weight
         else:
             reward = 0
 
@@ -161,11 +164,9 @@ class PushEnv(PandaEnv):
         info['ee_orn'] = ee_orn
         return self._get_obs(self._camera_param), reward, done, info
 
-
     def _get_obs(self, camera_param):
         obs = self.get_overhead_obs(camera_param)  # uint8
         return obs
-
 
     # @property
     # def init_joint_angles(self):

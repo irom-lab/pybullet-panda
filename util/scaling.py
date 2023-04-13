@@ -29,5 +29,5 @@ def traj_time_scaling(start_pos, end_pos, num_steps):
     traj_pos = np.zeros((num_steps, 3))
     for step in range(num_steps):
         s = 3 * (1.0 * step / num_steps)**2 - 2 * (1.0 * step / num_steps)**3
-        traj_pos[step] = (end_pos - start_pos) * s + start_pos
+        traj_pos[step] = (end_pos-start_pos) * s + start_pos
     return traj_pos

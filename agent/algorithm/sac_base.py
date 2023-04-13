@@ -1,6 +1,3 @@
-# Please contact the author(s) of this library if you have any questions.
-# Authors: Kai-Chieh Hsu ( kaichieh@princeton.edu )
-#          Allen Z. Ren (allen.ren@princeton.edu)
 import torch
 import numpy as np
 
@@ -16,6 +13,7 @@ from util.network import soft_update, save_model
 
 
 class SAC_Base(ABC):
+
     def __init__(self, CONFIG, CONFIG_ARCH, CONFIG_ENV):
         """
         __init__: initialization.
@@ -61,11 +59,11 @@ class SAC_Base(ABC):
             # Discount factor
             self.GAMMA_SCHEDULE = CONFIG.GAMMA_SCHEDULE
             if self.GAMMA_SCHEDULE:
-                self.GammaScheduler = StepLRMargin(initValue=CONFIG.GAMMA,
-                                                   period=CONFIG.GAMMA_PERIOD,
-                                                   decay=CONFIG.GAMMA_DECAY,
-                                                   endValue=CONFIG.GAMMA_END,
-                                                   goalValue=1.)
+                self.GammaScheduler = StepLRMargin(
+                    initValue=CONFIG.GAMMA, period=CONFIG.GAMMA_PERIOD,
+                    decay=CONFIG.GAMMA_DECAY, endValue=CONFIG.GAMMA_END,
+                    goalValue=1.
+                )
                 self.GAMMA = self.GammaScheduler.get_variable()
             else:
                 self.GAMMA = CONFIG.GAMMA
@@ -76,8 +74,8 @@ class SAC_Base(ABC):
             # alpha-related hyper-parameters
             self.init_alpha = CONFIG.ALPHA
             self.LEARN_ALPHA = CONFIG.LEARN_ALPHA
-            self.log_alpha = torch.tensor(np.log(self.init_alpha)).to(
-                self.device)
+            self.log_alpha = torch.tensor(np.log(self.init_alpha)
+                                         ).to(self.device)
             self.target_entropy = -self.action_dim
             if self.LEARN_ALPHA:
                 self.log_alpha.requires_grad = True
@@ -87,8 +85,10 @@ class SAC_Base(ABC):
                     self.LR_Al_PERIOD = CONFIG.LR_Al_PERIOD
                     self.LR_Al_DECAY = CONFIG.LR_Al_DECAY
                     self.LR_Al_END = CONFIG.LR_Al_END
-                print("SAC with learnable alpha and target entropy = {:.1e}".
-                      format(self.target_entropy))
+                print(
+                    "SAC with learnable alpha and target entropy = {:.1e}".
+                    format(self.target_entropy)
+                )
             else:
                 print("SAC with fixed alpha = {:.1e}".format(self.init_alpha))
 
@@ -106,11 +106,9 @@ class SAC_Base(ABC):
     def latent_dist(self):
         raise NotImplementedError
 
-    def build_network(self,
-                      verbose=True,
-                      actor_path=None,
-                      critic_path=None,
-                      tie_conv=True):
+    def build_network(
+        self, verbose=True, actor_path=None, critic_path=None, tie_conv=True
+    ):
         self.actor = SACPiNetwork(
             input_n_channel=self.CONFIG_ARCH.OBS_CHANNEL,
             img_sz=[self.img_h, self.img_w],
@@ -127,7 +125,8 @@ class SAC_Base(ABC):
             use_sm=self.CONFIG_ARCH.USE_SM,
             use_ln=self.CONFIG_ARCH.USE_LN,
             device=self.device,
-            verbose=verbose)
+            verbose=verbose
+        )
         self.critic = SACTwinnedQNetwork(
             input_n_channel=self.CONFIG_ARCH.OBS_CHANNEL,
             img_sz=[self.img_h, self.img_w],
@@ -143,16 +142,19 @@ class SAC_Base(ABC):
             use_sm=self.CONFIG_ARCH.USE_SM,
             use_ln=self.CONFIG_ARCH.USE_LN,
             device=self.device,
-            verbose=verbose)
+            verbose=verbose
+        )
 
         # Load model if specified
         if actor_path is not None:
             self.actor.load_state_dict(
-                torch.load(actor_path, map_location=self.device))
+                torch.load(actor_path, map_location=self.device)
+            )
             print("--> Load actor wights from {}".format(actor_path))
         if critic_path is not None:
             self.critic.load_state_dict(
-                torch.load(critic_path, map_location=self.device))
+                torch.load(critic_path, map_location=self.device)
+            )
             print("--> Load critic wights from {}".format(critic_path))
 
         # Copy for critic targer
@@ -169,22 +171,22 @@ class SAC_Base(ABC):
 
         if self.LR_C_SCHEDULE:
             self.critic_scheduler = lr_scheduler.StepLR(
-                self.critic_optimizer,
-                step_size=self.LR_C_PERIOD,
-                gamma=self.LR_C_DECAY)
+                self.critic_optimizer, step_size=self.LR_C_PERIOD,
+                gamma=self.LR_C_DECAY
+            )
         if self.LR_A_SCHEDULE:
             self.actor_scheduler = lr_scheduler.StepLR(
-                self.actor_optimizer,
-                step_size=self.LR_A_PERIOD,
-                gamma=self.LR_A_DECAY)
+                self.actor_optimizer, step_size=self.LR_A_PERIOD,
+                gamma=self.LR_A_DECAY
+            )
 
         if self.LEARN_ALPHA:
             self.log_alpha_optimizer = Adam([self.log_alpha], lr=self.LR_Al)
             if self.LR_Al_SCHEDULE:
                 self.log_alpha_scheduler = lr_scheduler.StepLR(
-                    self.log_alpha_optimizer,
-                    step_size=self.LR_Al_PERIOD,
-                    gamma=self.LR_Al_DECAY)
+                    self.log_alpha_optimizer, step_size=self.LR_Al_PERIOD,
+                    gamma=self.LR_Al_DECAY
+                )
 
     # region: update functions
     def update_alpha_hyperParam(self):
@@ -250,8 +252,9 @@ class SAC_Base(ABC):
         save_model(self.actor, step, path_a, 'actor', max_model)
 
     def remove(self, step, logs_path):
-        path_c = os.path.join(logs_path, 'critic',
-                              'critic-{}.pth'.format(step))
+        path_c = os.path.join(
+            logs_path, 'critic', 'critic-{}.pth'.format(step)
+        )
         path_a = os.path.join(logs_path, 'actor', 'actor-{}.pth'.format(step))
         print("Remove", path_a)
         print("Remove", path_c)

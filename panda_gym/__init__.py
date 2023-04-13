@@ -1,32 +1,26 @@
-from panda_gym.push_env import PushEnv
 from panda_gym.grasp_env import GraspEnv
-from panda_gym.grasp_flip_env import GraspFlipEnv
-from panda_gym.vec_env import VecEnvPush, VecEnvGrasp
-
-from omegaconf import OmegaConf
-
-
-def get_env(name):
-    if name == 'Push-v0':
-        return PushEnv
-    elif name == 'Grasp-v0':
-        return GraspEnv
-    elif name == 'GraspFlip-v0':
-        return GraspFlipEnv
-    else:
-        raise 'Unknown env type!'
+from panda_gym.push_env import PushEnv
+from panda_gym.push_tool_env import PushToolEnv
+from panda_gym.lift_env import LiftEnv
+from panda_gym.hammer_env import HammerEnv
+from panda_gym.sweep_env import SweepEnv
+from panda_gym.vec_env import VecEnvGrasp, VecEnvPush, VecEnvPushTool, VecEnvLift, VecEnvHammer, VecEnvSweep
 
 
-def get_vec_env(name):
-    if name == 'Push-v0':
-        return VecEnvPush
-    elif name == 'Grasp-v0' or name == 'GraspFlip-v0':
-        return VecEnvGrasp
-    else:
-        raise 'Unknown vec env type!'
+env_dict = {
+    'PushEnv': PushEnv,
+    'PushToolEnv': PushToolEnv,
+    'GraspEnv': GraspEnv,
+    'LiftEnv': LiftEnv,
+    'HammerEnv': HammerEnv,
+    'SweepEnv': SweepEnv,
+}
 
-
-def get_vec_env_cfg(name, cfg_env):
-    vec_env_cfg = cfg_env.specific
-    return vec_env_cfg
-
+vec_env_dict = {
+    'Push': VecEnvPush,
+    'PushTool': VecEnvPushTool,
+    'Grasp': VecEnvGrasp,
+    'Lift': VecEnvLift,
+    'Hammer': VecEnvHammer,
+    'Sweep': VecEnvSweep,
+}

@@ -10,9 +10,10 @@ panda_env = PandaEnv(mu=0.3, sigma=0.01, finger_type='long')
 panda_env.reset_env()
 
 # Load mug
-obj_id = p.loadURDF('data/sample_mug/4.urdf',
-                    basePosition=[0.5, 0.0, 0.0],
-                    baseOrientation=[0, 0, 0, 1])
+obj_id = p.loadURDF(
+    'data/sample_mug/4.urdf', basePosition=[0.5, 0.0, 0.0],
+    baseOrientation=[0, 0, 0, 1]
+)
 
 # Get camera params
 width = 64
@@ -74,11 +75,12 @@ projMat = [
 # https://forums.structure.io/t/near-far-value-from-projection-matrix/3757
 m22 = projMat[10]
 m32 = projMat[
-    14]  # THe projection matrix (array[15]) returned by PyBullet orders using column first
+    14
+]  # THe projection matrix (array[15]) returned by PyBullet orders using column first
 # params['near'] = 0.01
 # params['far'] = 1000
-near = 2 * m32 / (2 * m22 - 2)
-far = ((m22 - 1.0) * near) / (m22 + 1.0)
+near = 2 * m32 / (2*m22 - 2)
+far = ((m22-1.0) * near) / (m22+1.0)
 
 params = {}
 params['viewMat'] = viewMat
@@ -97,11 +99,10 @@ params['dist'] = 0.1
 params['camTarget'] = [0.5, 0.0, 0.0]
 
 # Get depth
-img_arr = p.getCameraImage(width=width,
-                           height=height,
-                           viewMatrix=viewMat,
-                           projectionMatrix=projMat,
-                           flags=p.ER_NO_SEGMENTATION_MASK)
+img_arr = p.getCameraImage(
+    width=width, height=height, viewMatrix=viewMat, projectionMatrix=projMat,
+    flags=p.ER_NO_SEGMENTATION_MASK
+)
 orig_dim = width
 center = orig_dim // 2
 crop_dim = 20  # 128: 15cm square; 96: 9cm square
@@ -109,18 +110,18 @@ crop_dim = 20  # 128: 15cm square; 96: 9cm square
 depth = np.reshape(img_arr[3], (width, height))\
                 [center - crop_dim // 2:center + crop_dim // 2,
                 center - crop_dim // 2:center + crop_dim // 2]
-depth = far * near / (far - (far - near) * depth)
+depth = far * near / (far - (far-near) * depth)
 # depth = (0.3 - depth) / self.max_obj_height  # set table zero, and normalize
 # depth = depth.clip(min=0., max=1.)
 
-pcl = pixelToWorld(img_arr[3],
-                   center=orig_dim // 2,
-                   dim=crop_dim,
-                   params=params)
+pcl = pixelToWorld(
+    img_arr[3], center=orig_dim // 2, dim=crop_dim, params=params
+)
 print(np.min(pcl[:, :, 0]), np.min(pcl[:, :, 1]))
 print(np.max(pcl[:, :, 0]), np.max(pcl[:, :, 1]))
 
 import matplotlib.pyplot as plt
+
 
 plt.imshow(depth, cmap='Greys')
 plt.show()

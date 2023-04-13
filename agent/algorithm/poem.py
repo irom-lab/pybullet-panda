@@ -2,37 +2,45 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
-EPS = 1e-9 # epsilon global variable for similarity matrix
+
+EPS = 1e-9  # epsilon global variable for similarity matrix
 
 
-def metric_fixed_point(cost_matrix, gamma=0.99, device='cpu'): # fast version of metric fixed point calclulation
-  """Dynamic programming for calculating PSM (for alignment loss)."""
-  d = torch.zeros_like(cost_matrix) #[56, 56]
-  def operator(d_cur):
-    d_new = 1 * cost_matrix
-    discounted_d_cur = gamma * d_cur
-    d_new[:-1, :-1] += discounted_d_cur[1:, 1:]
-    d_new[:-1, -1] += discounted_d_cur[1:, -1]
-    d_new[-1, :-1] += discounted_d_cur[-1, 1:]
-    return d_new
+def metric_fixed_point(
+    cost_matrix, gamma=0.99, device='cpu'
+):  # fast version of metric fixed point calclulation
+    """Dynamic programming for calculating PSM (for alignment loss)."""
+    d = torch.zeros_like(cost_matrix)  #[56, 56]
 
-  while True:
-    d_new = operator(d)
-    if torch.sum(torch.abs(d - d_new)) < EPS:
-      break
-    else:
-      d = d_new[:]
-  return d
+    def operator(d_cur):
+        d_new = 1 * cost_matrix
+        discounted_d_cur = gamma * d_cur
+        d_new[:-1, :-1] += discounted_d_cur[1:, 1:]
+        d_new[:-1, -1] += discounted_d_cur[1:, -1]
+        d_new[-1, :-1] += discounted_d_cur[-1, 1:]
+        return d_new
+
+    while True:
+        d_new = operator(d)
+        if torch.sum(torch.abs(d - d_new)) < EPS:
+            break
+        else:
+            d = d_new[:]
+    return d
 
 
 def calculate_action_cost_matrix(actions_1, actions_2, hardcode_encoder):
     """ Action cost matrix calculation for alignment loss"""
     if hardcode_encoder:
-        action_equality = torch.eq(actions_1.unsqueeze(1), actions_2.unsqueeze(0)).float()	# boolean to float for identity
-        return 1.0 - action_equality # for identity encoder
-    else: 
-        action_equality = torch.cdist(actions_1, actions_2, p=1) #  for non-identity 
-        return action_equality # for non-identity 
+        action_equality = torch.eq(
+            actions_1.unsqueeze(1), actions_2.unsqueeze(0)
+        ).float()  # boolean to float for identity
+        return 1.0 - action_equality  # for identity encoder
+    else:
+        action_equality = torch.cdist(
+            actions_1, actions_2, p=1
+        )  #  for non-identity
+        return action_equality  # for non-identity
 
 
 def calculate_reward_cost_matrix(rewards_1, rewards_2):
@@ -96,15 +104,15 @@ def ground_truth_coupling(actions_1, actions_2):
     return cost_matrix
 
 
-def contrastive_loss(similarity_matrix,
-                        metric_values,
-                        temperature,
-                        coupling_temperature=1.0,
-                        use_coupling_weights=True):
+def contrastive_loss(
+    similarity_matrix, metric_values, temperature, coupling_temperature=1.0,
+    use_coupling_weights=True
+):
     """Contrative Loss with soft coupling (Used for alignment loss) """
 
     similarity_matrix /= temperature
-    neg_logits1, neg_logits2 = similarity_matrix.clone(), similarity_matrix.clone()
+    neg_logits1, neg_logits2 = similarity_matrix.clone(
+    ), similarity_matrix.clone()
     col_indices = torch.argmin(metric_values, dim=1)
     pos_logits1 = gather_row(similarity_matrix, col_indices)
     row_indices = torch.argmin(metric_values, dim=0)
@@ -112,9 +120,11 @@ def contrastive_loss(similarity_matrix,
 
     # normalize metric_values and multiply by 1/coupling_temperature to use soft coupling
     if use_coupling_weights:
-        metric_values = F.normalize(metric_values.view(1,-1), p=2, dim=1).reshape(metric_values.shape)*100
+        metric_values = F.normalize(metric_values.view(1, -1), p=2,
+                                    dim=1).reshape(metric_values.shape) * 100
     else:
-        metric_values = F.normalize(metric_values.view(1,-1), p=2, dim=1).reshape(metric_values.shape)
+        metric_values = F.normalize(metric_values.view(1, -1), p=2,
+                                    dim=1).reshape(metric_values.shape)
 
     if use_coupling_weights:
         # metric_values /= coupling_temperature
@@ -123,10 +133,10 @@ def contrastive_loss(similarity_matrix,
         pos_weights2 = -gather_col(metric_values, row_indices)
         pos_logits1 += pos_weights1
         pos_logits2 += pos_weights2
-        negative_weights = torch.log((1.0 - coupling) + EPS)
+        negative_weights = torch.log((1.0-coupling) + EPS)
         neg_logits1 += update_row(negative_weights, col_indices, pos_weights1)
         neg_logits2 += update_col(negative_weights, row_indices, pos_weights2)
-    neg_logits1 = torch.logsumexp(neg_logits1, dim=1) 
+    neg_logits1 = torch.logsumexp(neg_logits1, dim=1)
     neg_logits2 = torch.logsumexp(neg_logits2, dim=0)
 
     loss1 = torch.mean(neg_logits1 - pos_logits1)
@@ -134,27 +144,19 @@ def contrastive_loss(similarity_matrix,
     return loss1 + loss2, col_indices, row_indices
 
 
-def representation_alignment_loss(state_encoder,
-                                action_encoder,
-                                optimal_data_tuple,
-                                learned_encoder_coefficient,
-                                hardcode_encoder=False,
-                                use_bisim=False,
-                                gamma=0.999,
-                                use_l2_loss=False,
-                                use_coupling_weights=False,
-                                coupling_temperature=1.0,
-                                temperature=1.0,
-                                ground_truth=False,
-                                device='cpu'):
-
+def representation_alignment_loss(
+    state_encoder, action_encoder, optimal_data_tuple,
+    learned_encoder_coefficient, hardcode_encoder=False, use_bisim=False,
+    gamma=0.999, use_l2_loss=False, use_coupling_weights=False,
+    coupling_temperature=1.0, temperature=1.0, ground_truth=False, device='cpu'
+):
     """Representation alignment loss."""
     obs_1, actions_1, rewards_1 = optimal_data_tuple[0]
     obs_2, actions_2, rewards_2 = optimal_data_tuple[1]
 
     # Convert all to tensors and push to device
-    obs_1 = torch.from_numpy(obs_1).float().to(device).permute(0,3,1,2)
-    obs_2 = torch.from_numpy(obs_2).float().to(device).permute(0,3,1,2)
+    obs_1 = torch.from_numpy(obs_1).float().to(device).permute(0, 3, 1, 2)
+    obs_2 = torch.from_numpy(obs_2).float().to(device).permute(0, 3, 1, 2)
     actions_1 = torch.tensor(actions_1).int().to(device)
     actions_2 = torch.tensor(actions_2).int().to(device)
     rewards_1 = torch.tensor(rewards_1).float().to(device)
@@ -163,32 +165,45 @@ def representation_alignment_loss(state_encoder,
     representation_1 = state_encoder.representation(obs_1)
     representation_2 = state_encoder.representation(obs_2)
 
-    actions_abstract_1, actions_abstract_1_normalized = action_encoder(obs_1, actions_1, learned_encoder_coefficient)
-    actions_abstract_2, actions_abstract_2_normalized = action_encoder(obs_2, actions_2, learned_encoder_coefficient)
+    actions_abstract_1, actions_abstract_1_normalized = action_encoder(
+        obs_1, actions_1, learned_encoder_coefficient
+    )
+    actions_abstract_2, actions_abstract_2_normalized = action_encoder(
+        obs_2, actions_2, learned_encoder_coefficient
+    )
 
     if use_l2_loss:
-        similarity_matrix = torch.cdist(representation_1, representation_2, p=2)
+        similarity_matrix = torch.cdist(
+            representation_1, representation_2, p=2
+        )
     else:
-        similarity_matrix = cosine_similarity(representation_1, representation_2)
+        similarity_matrix = cosine_similarity(
+            representation_1, representation_2
+        )
 
     # to check against other losses
     # baselines - Elise's (plannable approximations), Rishab's, DBC
     if ground_truth:
         metric_vals = torch.tensor(
-            ground_truth_coupling(actions_abstract_1, actions_abstract_2), dtype=torch.float32)
+            ground_truth_coupling(actions_abstract_1, actions_abstract_2),
+            dtype=torch.float32
+        )
     elif use_bisim:
         cost_matrix = calculate_reward_cost_matrix(rewards_1, rewards_2)
     else:
-        cost_matrix = calculate_action_cost_matrix(actions_abstract_1_normalized, actions_abstract_2_normalized, hardcode_encoder)
+        cost_matrix = calculate_action_cost_matrix(
+            actions_abstract_1_normalized, actions_abstract_2_normalized,
+            hardcode_encoder
+        )
         metric_vals = metric_fixed_point(cost_matrix, gamma, device=device)
     if use_l2_loss:
         # Directly match the l2 distance between representations to metric values
         alignment_loss = torch.mean((similarity_matrix - metric_vals)**2)
     else:
-        alignment_loss = contrastive_loss(similarity_matrix,
-                                            metric_vals,
-                                            temperature,
-                                            coupling_temperature=coupling_temperature,
-                                            use_coupling_weights=use_coupling_weights)
+        alignment_loss = contrastive_loss(
+            similarity_matrix, metric_vals, temperature,
+            coupling_temperature=coupling_temperature,
+            use_coupling_weights=use_coupling_weights
+        )
 
     return alignment_loss, metric_vals, similarity_matrix

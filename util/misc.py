@@ -1,8 +1,9 @@
-
 # suppress pybullet print - from https://github.com/bulletphysics/bullet3/issues/2170
 from ctypes import *
 from contextlib import contextmanager
 import sys, os
+
+
 @contextmanager
 def suppress_stdout():
     fd = sys.stdout.fileno()
@@ -25,6 +26,7 @@ def suppress_stdout():
 
 import pickle
 
+
 def save_obj(obj, filename):
     if filename.endswith('.pkl'):
         filename = filename[:-4]
@@ -37,4 +39,3 @@ def load_obj(filename):
         filename = filename[:-4]
     with open(filename + '.pkl', 'rb') as f:
         return pickle.load(f)
-

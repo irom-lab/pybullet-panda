@@ -17,6 +17,7 @@ class AgentImitate(AgentBase):
     """
     Run imitation learning using collected data. No more collecting experiences from environments.
     """
+
     def __init__(self, cfg, venv, verbose=True):
         super().__init__(cfg, venv)
         self.store_cfg(cfg)
@@ -25,7 +26,7 @@ class AgentImitate(AgentBase):
         self.learner_name = cfg.learner.name
         self.learner = get_learner(self.learner_name)(cfg.learner)
         # self.learner.build_network(cfg.learner.arch, verbose=verbose)
-        self.module_all = [self.learner]    # for saving models
+        self.module_all = [self.learner]  # for saving models
 
         # Utility - helper functions for envs
         self.utility = get_utility(cfg.utility.name)(cfg.utility)
@@ -33,7 +34,6 @@ class AgentImitate(AgentBase):
         # Affordance map
         self.img_folder = os.path.join(cfg.out_folder, 'img')
         os.makedirs(self.img_folder, exist_ok=True)
-
 
     def store_cfg(self, cfg):
         self.img_h = cfg.learner.img_h
@@ -47,18 +47,14 @@ class AgentImitate(AgentBase):
         self.expert_data_path = cfg.expert_data_path
         self.mask_grad_leakage = cfg.learner.mask_grad_leakage
 
-
     @property
     def cnt_step(self):
         return self.cnt_opt
 
-
-    def learn(self, tasks=None, 
-                    memory=None,
-                    policy_path=None, 
-                    optimizer_state=None,
-                    verbose=False,
-                    **kwargs):
+    def learn(
+        self, tasks=None, memory=None, policy_path=None, optimizer_state=None,
+        verbose=False, **kwargs
+    ):
         self.reset_save_info(self.out_folder)
 
         # Reset tasks
@@ -80,7 +76,7 @@ class AgentImitate(AgentBase):
             print(self.cnt_opt, end='\r')
             self.set_train_mode()
 
-            # Update policy 
+            # Update policy
             loss = 0
             for _ in range(self.num_update):
                 loss_batch = self.learner.update(self.sample_batch())
@@ -90,11 +86,12 @@ class AgentImitate(AgentBase):
 
             # Evaluate
             self.set_eval_mode()
-            num_epi_run, _ = self.run_steps(num_epi=self.num_epi_per_eval, 
-                                            force_deterministic=True)
+            num_epi_run, _ = self.run_steps(
+                num_epi=self.num_epi_per_eval, force_deterministic=True
+            )
             eval_reward_cum_avg = self.eval_reward_cum_all / num_epi_run
-            self.eval_record[self.cnt_opt] = (eval_reward_cum_avg, )
-            
+            self.eval_record[self.cnt_opt] = (eval_reward_cum_avg,)
+
             # Report
             logging.info("======================================")
             logging.info(f'Evaluating at step {self.cnt_opt}...')
@@ -102,7 +99,8 @@ class AgentImitate(AgentBase):
             if self.use_wandb:
                 wandb.log({
                     "AgentImitate - CE loss": loss,
-                    "AgentImitate - avg eval cumulative Reward": eval_reward_cum_avg,
+                    "AgentImitate - avg eval cumulative Reward":
+                        eval_reward_cum_avg,
                 }, step=self.cnt_opt, commit=True)
 
             # Saving model and training detailss
@@ -110,20 +108,22 @@ class AgentImitate(AgentBase):
                 best_path = self.save(metric=eval_reward_cum_avg)
             else:
                 raise NotImplementedError
-            torch.save(
-                {
-                    'loss_record': self.loss_record,
-                    'eval_record': self.eval_record,
-                }, os.path.join(self.out_folder, 'train_details'))
+            torch.save({
+                'loss_record': self.loss_record,
+                'eval_record': self.eval_record,
+            }, os.path.join(self.out_folder, 'train_details'))
 
             # Generate sample affordance map
             for aff_ind in range(self.num_affordance):
-                img = self.obs_buffer[self.rng.integers(0, len(self.obs_buffer))].float()/255.0
-                img_pred = self.learner(img[None].to(self.device)).squeeze(1).squeeze(0)
-                save_affordance_map(img=img,
-                                    pred=img_pred,
-                                    path_prefix=os.path.join(self.img_folder, 
-                                                             f'{self.cnt_opt}_{aff_ind}'))
+                img = self.obs_buffer[
+                    self.rng.integers(0, len(self.obs_buffer))].float() / 255.0
+                img_pred = self.learner(img[None].to(self.device)
+                                       ).squeeze(1).squeeze(0)
+                save_affordance_map(
+                    img=img, pred=img_pred, path_prefix=os.path.join(
+                        self.img_folder, f'{self.cnt_opt}_{aff_ind}'
+                    )
+                )
             logging.info("======================================")
 
             # Count number of optimization
@@ -133,7 +133,6 @@ class AgentImitate(AgentBase):
         best_path = self.save(force_save=True)
         return best_path
 
-
     # === Replay and update ===
     def sample_batch(self, batch_size=None):
         # Sample indices
@@ -142,15 +141,16 @@ class AgentImitate(AgentBase):
         buffer_size = self.obs_buffer.shape[0]
         sample_inds = random.sample(range(buffer_size), k=batch_size)
 
-        # Get data        
+        # Get data
         obs_batch = self.obs_buffer[sample_inds].clone().detach().to(
-            self.device, non_blocking=True)  # NxCxHxW
+            self.device, non_blocking=True
+        )  # NxCxHxW
         ground_truth_batch = self.ground_truth_buffer[sample_inds].clone(
         ).detach().to(self.device, non_blocking=True)  # NxHxW
         mask_batch = self.mask_buffer[sample_inds].clone().detach().to(
-            self.device, non_blocking=True)  # NxHxW
+            self.device, non_blocking=True
+        )  # NxHxW
         return (obs_batch, ground_truth_batch, mask_batch)
-
 
     #== Reset policy/optimizer/memory
     def reset_policy(self, policy_path=None):
@@ -158,11 +158,10 @@ class AgentImitate(AgentBase):
             self.learner.load_network(policy_path)
             logging.info('Loaded policy network from: {}'.format(policy_path))
         else:
-            self.learner.build_network(self.cfg.learner.arch,   
-                                       build_optimizer=False, 
-                                       verbose=True)
+            self.learner.build_network(
+                self.cfg.learner.arch, build_optimizer=False, verbose=True
+            )
             logging.info('Built new policy network!')
-
 
     def load_data(self, path):
         """Imitation data. Obs in uint8. Assume all reward=1"""
@@ -170,10 +169,12 @@ class AgentImitate(AgentBase):
         self.obs_buffer = data['obs'].to('cpu')
         N, C, H, W = self.obs_buffer.shape
         action_all = data['action']
-        
+
         # Construnct ground truth and mask (all zeros except for selected pixel)
-        self.ground_truth_buffer = torch.zeros((N, H, W), dtype=torch.uint8).to('cpu')
-        self.mask_buffer = torch.ones((N, H, W), dtype=torch.float32).to('cpu')*self.mask_grad_leakage
+        self.ground_truth_buffer = torch.zeros((N, H, W),
+                                               dtype=torch.uint8).to('cpu')
+        self.mask_buffer = torch.ones((N, H, W), dtype=torch.float32
+                                     ).to('cpu') * self.mask_grad_leakage
         for trial_ind, (py, px) in enumerate(action_all):
             py = int(py)
             px = int(px)
@@ -187,9 +188,9 @@ class AgentImitate(AgentBase):
             #     plt.savefig(f'{trial_ind}_{py}_{px}.png')
             #     plt.close()
 
-        self.reward_buffer = torch.ones((len(self.obs_buffer))).float().to('cpu')
+        self.reward_buffer = torch.ones((len(self.obs_buffer))
+                                       ).float().to('cpu')
         logging.info(f'Loaded imitation data from {path}!')
-
 
     def reset_optimizer(self, optimizer_state=None):
         if optimizer_state:

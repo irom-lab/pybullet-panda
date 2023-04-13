@@ -9,6 +9,7 @@ def NearZero(z):
 ##########################################################################
 ######### Conversion between S03 and euler angle, quaternion #########
 ##########################################################################
+
 """
 All conversions follow https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/. except yaw and pitch are flipped
 ZYX (Yaw, pitch, roll) intrinsic Euler angle convention is used.
@@ -41,14 +42,14 @@ def euler2rot(a):
 
     R = np.zeros((3, 3))
     R[0, 0] = ch * ca
-    R[0, 1] = sh * sb - ch * sa * cb
-    R[0, 2] = ch * sa * sb + sh * cb
+    R[0, 1] = sh*sb - ch*sa*cb
+    R[0, 2] = ch*sa*sb + sh*cb
     R[1, 0] = sa
     R[1, 1] = ca * cb
     R[1, 2] = -ca * sb
     R[2, 0] = -sh * ca
-    R[2, 1] = sh * sa * cb + ch * sb
-    R[2, 2] = -sh * sa * sb + ch * cb
+    R[2, 1] = sh*sa*cb + ch*sb
+    R[2, 2] = -sh * sa * sb + ch*cb
     return R
 
 
@@ -99,13 +100,13 @@ def quat2rot(q, w_first=False):
 
     R = np.zeros((3, 3))
     R[0, 0] = 1 - 2 * b**2 - 2 * c**2
-    R[0, 1] = 2 * a * b - 2 * c * w
-    R[0, 2] = 2 * a * c + 2 * b * w
-    R[1, 0] = 2 * a * b + 2 * c * w
+    R[0, 1] = 2*a*b - 2*c*w
+    R[0, 2] = 2*a*c + 2*b*w
+    R[1, 0] = 2*a*b + 2*c*w
     R[1, 1] = 1 - 2 * a**2 - 2 * c**2
-    R[1, 2] = 2 * b * c - 2 * a * w
-    R[2, 0] = 2 * a * c - 2 * b * w
-    R[2, 1] = 2 * b * c + 2 * a * w
+    R[1, 2] = 2*b*c - 2*a*w
+    R[2, 0] = 2*a*c - 2*b*w
+    R[2, 1] = 2*b*c + 2*a*w
     R[2, 2] = 1 - 2 * a**2 - 2 * b**2
     return R
 
@@ -161,10 +162,10 @@ def euler2quat(a):
     s3 = np.sin(roll / 2)
     c1c2 = c1 * c2
     s1s2 = s1 * s2
-    w = c1c2 * c3 - s1s2 * s3
-    x = c1c2 * s3 + s1s2 * c3
-    y = s1 * c2 * c3 + c1 * s2 * s3
-    z = c1 * s2 * c3 - s1 * c2 * s3
+    w = c1c2*c3 - s1s2*s3
+    x = c1c2*s3 + s1s2*c3
+    y = s1*c2*c3 + c1*s2*s3
+    z = c1*s2*c3 - s1*c2*s3
 
     return np.array([x, y, z, w])
     # return rot2quat(euler2rot(a))
@@ -181,7 +182,7 @@ def quat2euler(q, zyx=False):
     sqy = y * y
     sqz = z * z
     unit = sqx + sqy + sqz + sqw  #  if normalised is one, otherwise is correction factor
-    test = x * y + z * w
+    test = x*y + z*w
     if test > 0.499 * unit:  # singularity at north pole
         yaw = 2 * np.arctan2(x, w)
         pitch = np.pi / 2
@@ -191,9 +192,9 @@ def quat2euler(q, zyx=False):
         pitch = -np.pi / 2
         roll = 0
     else:
-        yaw = np.arctan2(2 * y * w - 2 * x * z, sqx - sqy - sqz + sqw)
+        yaw = np.arctan2(2*y*w - 2*x*z, sqx - sqy - sqz + sqw)
         pitch = np.arcsin(2 * test / unit)
-        roll = np.arctan2(2 * x * w - 2 * y * z, -sqx + sqy - sqz + sqw)
+        roll = np.arctan2(2*x*w - 2*y*z, -sqx + sqy - sqz + sqw)
     return np.array([yaw, pitch, roll])
     # return rot2euler(quat2rot(q), zyx)
 
@@ -207,8 +208,8 @@ def quat2aa(q):
 
 def rot2aa(R):
     angle = np.arccos((np.trace(R) - 1) / 2)
-    axis = array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]
-                  ]) / (2 * np.sin(angle))
+    axis = array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]
+                ) / (2 * np.sin(angle))
     return axis, angle
 
 
@@ -221,9 +222,9 @@ def log_rot(R):
         np.trace(R), -0.999, 0.999
     )  #! for some reason this generates more stable motion for velocity control
     # t = np.clip(np.trace(R), -0.999, 2.999)
-    theta = np.arccos((t - 1) / 2)
-    return np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]
-                     ]) / (2 * np.sin(theta))
+    theta = np.arccos((t-1) / 2)
+    return np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]
+                   ) / (2 * np.sin(theta))
 
     # acosinput = (np.trace(R) - 1) / 2.0
     # # print(acosinput)
@@ -261,14 +262,17 @@ def adjoint(pos, quat):
     return np.vstack((
         # np.hstack((rot, skew(pos)@rot)),
         np.hstack((rot, skew(pos).dot(rot))),
-        np.hstack((np.zeros((3, 3)), rot))))
+        np.hstack((np.zeros((3, 3)), rot))
+    ))
 
 
 def homogeneous(pos, quat):
     rot = quat2rot(quat)
 
-    return np.vstack((np.hstack(
-        (rot, np.asarray(pos).reshape(3, 1))), np.array([[0, 0, 0, 1]])))
+    return np.vstack((
+        np.hstack((rot, np.asarray(pos).reshape(3,
+                                                1))), np.array([[0, 0, 0, 1]])
+    ))
 
 
 ############################################################################
@@ -299,7 +303,7 @@ def vec2rot(x, y):
         s = np.linalg.norm(v)
         c = np.dot(x, y)
         vs = skew(v)
-        return np.eye(3) + vs + vs.dot(vs) * (1 / (1 + c))
+        return np.eye(3) + vs + vs.dot(vs) * (1 / (1+c))
 
 
 def orient(z):

@@ -24,18 +24,17 @@ def main(cfg, no_wandb=False):
     log_sh = logging.StreamHandler(sys.stdout)
     # log_format = '%(asctime)s %(levelname)s: %(message)s'
     log_format = '%(levelname)s: %(message)s'
-    # Possible levels: DEBUG, INFO, WARNING, ERROR, CRITICAL    
-    logging.basicConfig(format=log_format, level='INFO', 
-        handlers=[log_sh, log_fh])
+    # Possible levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    logging.basicConfig(
+        format=log_format, level='INFO', handlers=[log_sh, log_fh]
+    )
 
     ###################### cfg ######################
     os.makedirs(cfg.out_folder, exist_ok=True)
-    if no_wandb:    # overwrite
+    if no_wandb:  # overwrite
         cfg.use_wandb = False
     if cfg.use_wandb:
-        wandb.init(entity='allenzren',
-                   project=cfg.project,
-                   name=cfg.run)
+        wandb.init(entity='allenzren', project=cfg.project, name=cfg.run)
         wandb.config.update(cfg)
 
     # Reuse some cfg
@@ -69,8 +68,10 @@ def main(cfg, no_wandb=False):
 
     ###################### Env ######################
     # Common args
-    env_cfg = OmegaConf.create({'render': cfg.env.render,
-                                'camera_param': cfg.env.camera})
+    env_cfg = OmegaConf.create({
+        'render': cfg.env.render,
+        'camera_param': cfg.env.camera
+    })
 
     # Add
     if cfg.env.specific:
@@ -110,13 +111,8 @@ def main(cfg, no_wandb=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-cf",
-                        "--cfg_file",
-                        help="cfg file path",
-                        type=str)
-    parser.add_argument("-no_wb",
-                        "--no_wandb",
-                        action="store_true")
+    parser.add_argument("-cf", "--cfg_file", help="cfg file path", type=str)
+    parser.add_argument("-no_wb", "--no_wandb", action="store_true")
     args = parser.parse_args()
     cfg = OmegaConf.load(args.cfg_file)
     main(cfg, args.no_wandb)

@@ -1,10 +1,8 @@
 # Minimal working example
 import numpy as np
 from omegaconf import OmegaConf
-from panda_gym.push_env import PushEnv
 from panda_gym.push_tool_env import PushToolEnv
 from util.geom import euler2quat
-import pybullet as p
 import time
 import pickle
 
@@ -14,11 +12,11 @@ camera_param = OmegaConf.create()
 # camera_param.pos = [0.7, 0, camera_height]
 camera_param.pos = [1.0, 0, camera_height]
 # camera_param.euler = [0, -np.pi, 0] # extrinsic - x up, z forward
-camera_param.euler = [0, -3*np.pi/4, 0] # extrinsic - x up, z forward
+camera_param.euler = [0, -3 * np.pi / 4, 0]  # extrinsic - x up, z forward
 camera_param.img_w = 128
 camera_param.img_h = 128
 camera_param.aspect = 1
-camera_param.fov = 60    # vertical fov in degrees
+camera_param.fov = 60  # vertical fov in degrees
 camera_param.max_depth = camera_height
 camera_param.min_depth = 0
 
@@ -34,14 +32,16 @@ with open(dataset, 'rb') as f:
 # task_all[0]['obj_scaling'] = 2
 
 # Initialize environment
-env = PushToolEnv(task=task_all[0],
-                    render=True,
-                    use_rgb=True,
-                    use_depth=True,
-                    #
-                    mu=0.5,
-                    sigma=0.1,
-                    camera_param=camera_param)
+env = PushToolEnv(
+    task=task_all[0],
+    render=True,
+    use_rgb=True,
+    use_depth=True,
+    #
+    mu=0.5,
+    sigma=0.1,
+    camera_param=camera_param
+)
 env.seed(0)
 # env.reset()
 # self.reset_arm_joints_ik([0.39, 0.0, 0.17], orn=euler2quat([np.pi,np.pi-np.pi/8,0]))
@@ -54,11 +54,14 @@ for task in task_all:
     for step in range(1):
         obs, reward, done, info = env.step(action=np.array([0.5, 0.3, 0.5]))
         ee_pos = info['s'][:3]
-        print('\nStep: {}, Reward: {:.3f}, Done: {}, x: {:.3f}, y: {:.3f}, z: {:.3f}\n'.format(step, reward, done, ee_pos[0], ee_pos[1], ee_pos[2]))
+        print(
+            '\nStep: {}, Reward: {:.3f}, Done: {}, x: {:.3f}, y: {:.3f}, z: {:.3f}\n'
+            .format(step, reward, done, ee_pos[0], ee_pos[1], ee_pos[2])
+        )
         time.sleep(1)
-    # input("Press Enter to continue...")
+        # input("Press Enter to continue...")
 
         import matplotlib.pyplot as plt
-        plt.imshow(np.transpose(obs[1:], (1,2,0)))
+        plt.imshow(np.transpose(obs[1:], (1, 2, 0)))
         plt.show()
     # env.reset()

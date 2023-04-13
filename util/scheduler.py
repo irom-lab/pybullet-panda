@@ -3,6 +3,7 @@
 
 
 class _scheduler(object):
+
     def __init__(self, last_epoch=-1, verbose=False):
         self.cnt = last_epoch
         self.verbose = verbose
@@ -22,14 +23,11 @@ class _scheduler(object):
 
 
 class StepLR(_scheduler):
-    def __init__(self,
-                 initValue,
-                 period,
-                 decay=0.1,
-                 endValue=None,
-                 last_epoch=-1,
-                 threshold=0,
-                 verbose=False):
+
+    def __init__(
+        self, initValue, period, decay=0.1, endValue=None, last_epoch=-1,
+        threshold=0, verbose=False
+    ):
         self.initValue = initValue
         self.period = period
         self.decay = decay
@@ -50,15 +48,11 @@ class StepLR(_scheduler):
 
 
 class StepLRMargin(_scheduler):
-    def __init__(self,
-                 initValue,
-                 period,
-                 goalValue,
-                 decay=0.1,
-                 endValue=None,
-                 last_epoch=-1,
-                 threshold=0,
-                 verbose=False):
+
+    def __init__(
+        self, initValue, period, goalValue, decay=0.1, endValue=None,
+        last_epoch=-1, threshold=0, verbose=False
+    ):
         self.initValue = initValue
         self.period = period
         self.decay = decay
@@ -81,13 +75,11 @@ class StepLRMargin(_scheduler):
 
 
 class StepLRFixed(_scheduler):
-    def __init__(self,
-                 initValue,
-                 period,
-                 endValue,
-                 stepSize=0.1,
-                 last_epoch=-1,
-                 verbose=False):
+
+    def __init__(
+        self, initValue, period, endValue, stepSize=0.1, last_epoch=-1,
+        verbose=False
+    ):
         self.initValue = initValue
         self.period = period
         self.stepSize = stepSize
@@ -100,23 +92,22 @@ class StepLRFixed(_scheduler):
         elif self.cnt > self.period:
             self.cnt = 0
             if self.stepSize > 0:
-                self.variable = min(self.endValue,
-                                    self.variable + self.stepSize)
+                self.variable = min(
+                    self.endValue, self.variable + self.stepSize
+                )
             else:
-                self.variable = max(self.endValue,
-                                    self.variable + self.stepSize)
+                self.variable = max(
+                    self.endValue, self.variable + self.stepSize
+                )
         return self.variable
 
 
 class StepResetLR(_scheduler):
-    def __init__(self,
-                 initValue,
-                 period,
-                 resetPeriod,
-                 decay=0.1,
-                 endValue=None,
-                 last_epoch=-1,
-                 verbose=False):
+
+    def __init__(
+        self, initValue, period, resetPeriod, decay=0.1, endValue=None,
+        last_epoch=-1, verbose=False
+    ):
         self.initValue = initValue
         self.period = period
         self.decay = decay

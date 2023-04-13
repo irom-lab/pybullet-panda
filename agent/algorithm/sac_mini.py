@@ -1,7 +1,3 @@
-# Please contact the author(s) of this library if you have any questions.
-# Authors: Kai-Chieh Hsu ( kaichieh@princeton.edu )
-#          Allen Z. Ren (allen.ren@princeton.edu)
-
 import torch
 import torch.nn.functional as F
 
@@ -9,6 +5,7 @@ from agent.algorithm.sac_base import SAC_Base
 
 
 class SAC_mini(SAC_Base):
+
     def __init__(self, CONFIG, CONFIG_ARCH, CONFIG_ENV):
         super().__init__(CONFIG, CONFIG_ARCH, CONFIG_ENV)
 
@@ -20,16 +17,14 @@ class SAC_mini(SAC_Base):
     def latent_dist(self):
         return None
 
-    def build_network(self,
-                      build_optimizer=True,
-                      verbose=True,
-                      actor_path=None,
-                      critic_path=None,
-                      tie_conv=True):
-        super().build_network(verbose,
-                              actor_path=actor_path,
-                              critic_path=critic_path,
-                              tie_conv=tie_conv)
+    def build_network(
+        self, build_optimizer=True, verbose=True, actor_path=None,
+        critic_path=None, tie_conv=True
+    ):
+        super().build_network(
+            verbose, actor_path=actor_path, critic_path=critic_path,
+            tie_conv=tie_conv
+        )
 
         # Set up optimizer
         if build_optimizer:
@@ -43,16 +38,18 @@ class SAC_mini(SAC_Base):
             self.critic.eval()
 
     def update_critic(self, batch):
-        (non_final_mask, non_final_state_nxt, state, action, reward, append,
-         non_final_append_nxt, _, _) = batch
+        (
+            non_final_mask, non_final_state_nxt, state, action, reward, append,
+            non_final_append_nxt, _, _
+        ) = batch
         self.critic.train()
         self.critic_target.eval()
         self.actor.eval()
 
         # == get Q(s,a) ==
         q1, q2 = self.critic(
-            state, action,
-            append=append)  # Used to compute loss (non-target part).
+            state, action, append=append
+        )  # Used to compute loss (non-target part).
 
         # == placeholder for target ==
         y = torch.zeros(state.shape[0]).float().to(self.device)
@@ -60,14 +57,17 @@ class SAC_mini(SAC_Base):
         # == compute actor next_actions and feed to critic_target ==
         with torch.no_grad():
             next_actions, next_log_prob = self.actor.sample(
-                non_final_state_nxt, append=non_final_append_nxt)
-            next_q1, next_q2 = self.critic_target(non_final_state_nxt,
-                                                  next_actions,
-                                                  append=non_final_append_nxt)
+                non_final_state_nxt, append=non_final_append_nxt
+            )
+            next_q1, next_q2 = self.critic_target(
+                non_final_state_nxt, next_actions, append=non_final_append_nxt
+            )
             # max for reach-avoid Bellman equation, safety Bellman equation and
             # risk (recovery RL)
-            if (self.mode == 'RA' or self.mode == 'safety'
-                    or self.mode == 'risk'):
+            if (
+                self.mode == 'RA' or self.mode == 'safety'
+                or self.mode == 'risk'
+            ):
                 q_max = torch.max(next_q1, next_q2).view(-1)
             elif self.mode == 'performance':
                 q_min = torch.min(next_q1, next_q2).view(-1)
@@ -79,15 +79,16 @@ class SAC_mini(SAC_Base):
                 # V(s) = max{ g(s), V(s') }
                 # Q(s, u) = V( f(s,u) ) = max{ g(s'), min_{u'} Q(s', u') }
                 # normal state
-                y[non_final_mask] = (
-                    (1.0 - self.GAMMA) * g_x[non_final_mask] +
-                    self.GAMMA * torch.max(g_x[non_final_mask], q_max))
+                y[non_final_mask] = ((1.0 - self.GAMMA) * g_x[non_final_mask]
+                                     + self.GAMMA
+                                     * torch.max(g_x[non_final_mask], q_max))
 
                 # terminal state
                 y[final_mask] = g_x[final_mask]
             elif self.mode == 'performance':
                 target_q = q_min - self.alpha * next_log_prob.view(
-                    -1)  # already masked - can be lower dim than y
+                    -1
+                )  # already masked - can be lower dim than y
                 y = reward
                 y[non_final_mask] += self.GAMMA * target_q
             else:
@@ -114,13 +115,12 @@ class SAC_mini(SAC_Base):
         self.critic.eval()
         self.actor.train()
 
-        action_sample, log_prob = self.actor.sample(state,
-                                                    append=append,
-                                                    detach_encoder=True)
-        q_pi_1, q_pi_2 = self.critic(state,
-                                     action_sample,
-                                     append=append,
-                                     detach_encoder=True)
+        action_sample, log_prob = self.actor.sample(
+            state, append=append, detach_encoder=True
+        )
+        q_pi_1, q_pi_2 = self.critic(
+            state, action_sample, append=append, detach_encoder=True
+        )
 
         if self.mode == 'RA' or self.mode == 'safety' or self.mode == 'risk':
             q_pi = torch.max(q_pi_1, q_pi_2)

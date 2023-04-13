@@ -1,21 +1,11 @@
 import torch
-# import gym
-from .subproc_vec_env import SubprocVecEnv
-
-# def make_env(env_id, seed, rank, **kwargs):
-# def _thunk():
-#     env = gym.make(env_id, **kwargs)
-#     env.seed(seed + rank)
-#     return env
-
-# return _thunk
+from panda_gym.util.subproc_vec_env import SubprocVecEnv
 
 
-def make_vec_envs(env_type, seed, num_process, cpu_offset, device,
-                  vec_env_type, vec_env_cfg, **kwargs):
-    # envs = [
-    #     make_env(env_name, seed, i, **kwargs) for i in range(num_processes)
-    # ]
+def make_vec_envs(
+    env_type, seed, num_process, cpu_offset, device, vec_env_type, vec_env_cfg,
+    **kwargs
+):
     envs = [env_type(**kwargs) for _ in range(num_process)]
     for rank, env in enumerate(envs):
         env.seed(seed + rank)
@@ -27,20 +17,19 @@ class VecEnvBase(SubprocVecEnv):
     """
     Mostly for torch
     """
-    def __init__(self,
-                 venv,
-                 cpu_offset,
-                 device,
-                 pickle_option='cloudpickle',
-                 start_method=None):
-        super(VecEnvBase, self).__init__(venv,
-                                         cpu_offset,
-                                         pickle_option=pickle_option,
-                                         start_method=start_method)
+
+    def __init__(
+        self, venv, cpu_offset, device, pickle_option='cloudpickle',
+        start_method=None
+    ):
+        super(VecEnvBase, self).__init__(
+            venv, cpu_offset, pickle_option=pickle_option,
+            start_method=start_method
+        )
         self.device = device
 
     def reset(self, tasks):
-        args_all = [(task, ) for task in tasks]
+        args_all = [(task,) for task in tasks]
         obs = self.reset_arg(args_all)
         return torch.from_numpy(obs).to(self.device)
 
@@ -63,9 +52,11 @@ class VecEnvBase(SubprocVecEnv):
         return obs, reward, done, info
 
     def get_obs(self, states):
-        method_args_list = [(state, ) for state in states]
+        method_args_list = [(state,) for state in states]
         obs = torch.FloatTensor(
-            self.env_method_arg('_get_obs',
-                                method_args_list=method_args_list,
-                                indices=range(self.n_envs)))
+            self.env_method_arg(
+                '_get_obs', method_args_list=method_args_list,
+                indices=range(self.n_envs)
+            )
+        )
         return obs.to(self.device)
